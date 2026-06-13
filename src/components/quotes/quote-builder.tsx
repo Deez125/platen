@@ -42,6 +42,7 @@ import { computeQuoteTotals } from "@/lib/quotes/totals";
 import {
   type BuilderLine,
   type QuoteRefData,
+  type RefCustomer,
   type RefFee,
   type RefPaymentTerm,
   type RefProduct,
@@ -347,6 +348,17 @@ export function QuoteBuilder({ refData, org, quoteId, initial, existing, detailA
   function updateMeta(patch: Partial<MetaSlice>) {
     setMeta((prev) => ({ ...prev, ...patch }));
   }
+  /** Apply a picked customer's default payment term to the quote (resolving its
+   *  installments from the org's saved terms). No-op if they have none set. */
+  function applyCustomerDefaults(c: RefCustomer) {
+    const termName = c.defaultPaymentTerms?.trim();
+    if (!termName) return;
+    const term = refData.paymentTerms.find((t) => t.name === termName);
+    updateMeta({
+      paymentTerms: termName,
+      paymentSchedule: term ? term.installments.map((i) => ({ ...i })) : null,
+    });
+  }
   function updateLine(index: number, line: BuilderLine) {
     setLines((prev) => prev.map((l, i) => (i === index ? line : l)));
   }
@@ -565,6 +577,7 @@ export function QuoteBuilder({ refData, org, quoteId, initial, existing, detailA
             value={customer}
             onChange={updateCustomer}
             customers={refData.customers}
+            onSelectCustomer={applyCustomerDefaults}
           />
 
           <Card>

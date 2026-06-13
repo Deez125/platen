@@ -1,17 +1,20 @@
 "use client";
 
-import { Bug, CircleCheck, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
+import { Bug, CalendarClock, CircleCheck, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Shortcut } from "@/components/common/shortcut";
 import { usePlatform } from "@/components/providers/platform-provider";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Ring } from "@/components/ui/ring";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { getEntityDates, setEntityDates } from "@/lib/actions/debug";
+import { DATE_FIELDS } from "@/lib/debug/date-fields";
 import { cn } from "@/lib/utils";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -35,6 +38,39 @@ export function DebugMenu() {
   const router = useRouter();
   const target = deleteTarget(pathname);
   const [deleting, setDeleting] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [dates, setDates] = useState<Record<string, string>>({});
+  const [loadingDates, setLoadingDates] = useState(false);
+  const [savingDates, setSavingDates] = useState(false);
+
+  // Load the current entity's dates whenever the panel opens on a detail page.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch only when the panel opens on a new entity
+  useEffect(() => {
+    if (!open || !target) return;
+    let cancelled = false;
+    setLoadingDates(true);
+    getEntityDates(target.kind, target.id).then((res) => {
+      if (cancelled) return;
+      setLoadingDates(false);
+      setDates(res.ok ? res.dates : {});
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, target?.kind, target?.id]);
+
+  async function handleSaveDates() {
+    if (!target || savingDates) return;
+    setSavingDates(true);
+    const res = await setEntityDates(target.kind, target.id, dates);
+    setSavingDates(false);
+    if (!res.ok) {
+      toast.error("Couldn't update dates", { description: res.error });
+      return;
+    }
+    toast.success("Dates updated");
+    router.refresh();
+  }
 
   async function handleDelete() {
     if (!target || deleting) return;
@@ -62,7 +98,7 @@ export function DebugMenu() {
 
   return (
     <Tooltip>
-      <Popover>
+      <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <TooltipTrigger asChild>
             <Button variant="ghost" size="icon" aria-label="Open debug panel">
@@ -152,6 +188,53 @@ export function DebugMenu() {
                   }
                 />
               </div>
+            </section>
+
+            <Separator />
+
+            <section>
+              <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <CalendarClock className="size-3.5" /> Dates
+              </h3>
+              {target ? (
+                loadingDates ? (
+                  <div className="flex justify-center py-3">
+                    <Ring size="sm" className="text-muted-foreground" />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {DATE_FIELDS[target.kind].map((f) => (
+                      <div key={f.column} className="flex items-center justify-between gap-2">
+                        <label
+                          htmlFor={`dbg-date-${f.column}`}
+                          className="text-[11px] text-muted-foreground"
+                        >
+                          {f.label}
+                        </label>
+                        <Input
+                          id={`dbg-date-${f.column}`}
+                          type="date"
+                          value={dates[f.column] ?? ""}
+                          onChange={(e) => setDates((d) => ({ ...d, [f.column]: e.target.value }))}
+                          className="h-7 w-36 text-xs"
+                        />
+                      </div>
+                    ))}
+                    <Button
+                      size="sm"
+                      className="w-full"
+                      onClick={handleSaveDates}
+                      disabled={savingDates}
+                    >
+                      {savingDates ? <Ring size="sm" className="text-current" /> : "Save dates"}
+                    </Button>
+                  </div>
+                )
+              ) : (
+                <p className="text-[11px] text-muted-foreground/60">
+                  Open a quote, invoice, or job to edit its dates.
+                </p>
+              )}
             </section>
 
             <Separator />

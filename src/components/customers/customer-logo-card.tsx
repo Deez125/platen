@@ -1,14 +1,14 @@
 "use client";
 
-import { ImageIcon, Trash2, Upload } from "lucide-react";
+import { ImagePlus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Ring } from "@/components/ui/ring";
 import { createClient } from "@/lib/supabase/browser";
+import { cn } from "@/lib/utils";
 
 const MAX_BYTES = 2 * 1024 * 1024; // 2 MB
 const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
@@ -215,50 +215,38 @@ function LogoCardShell({
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
-          <div className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted/40">
-            {previewUrl ? (
+        <div className="relative w-fit">
+          <button
+            type="button"
+            onClick={onPick}
+            disabled={busy}
+            className={cn(
+              "flex size-24 cursor-pointer flex-col items-center justify-center gap-1 overflow-hidden rounded-md border bg-muted/40 text-muted-foreground transition-colors hover:bg-muted disabled:cursor-default",
+              previewUrl ? "border-border" : "border-dashed border-border",
+            )}
+          >
+            {busy ? (
+              <Ring size="sm" className="text-current" />
+            ) : previewUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={previewUrl} alt="Customer logo" className="size-full object-contain" />
             ) : (
-              <ImageIcon className="size-6 text-muted-foreground" />
+              <>
+                <ImagePlus className="size-6" />
+                <span className="text-[10px]">Add logo</span>
+              </>
             )}
-          </div>
-          <div className="flex flex-1 flex-col gap-2">
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onPick}
-                disabled={busy}
-                className="gap-1.5"
-              >
-                {busy ? (
-                  <Ring size="sm" className="text-current" />
-                ) : (
-                  <>
-                    <Upload className="size-3.5" />
-                    {previewUrl ? "Change" : "Upload"}
-                  </>
-                )}
-              </Button>
-              {previewUrl ? (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={onRemove}
-                  disabled={busy}
-                  className="gap-1.5 text-muted-foreground"
-                >
-                  <Trash2 className="size-3.5" />
-                  Remove
-                </Button>
-              ) : null}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {busy ? "Working…" : "PNG, JPG, WebP, or SVG — up to 2 MB."}
-            </p>
-          </div>
+          </button>
+          {previewUrl && !busy ? (
+            <button
+              type="button"
+              onClick={onRemove}
+              aria-label="Remove logo"
+              className="absolute -top-2 -right-2 cursor-pointer rounded-full border border-border bg-background p-1 text-muted-foreground shadow-sm transition-colors hover:text-destructive"
+            >
+              <X className="size-3" />
+            </button>
+          ) : null}
           <input
             ref={inputRef}
             type="file"
@@ -267,6 +255,9 @@ function LogoCardShell({
             onChange={onInputChange}
           />
         </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          {busy ? "Working…" : "PNG, JPG, WebP, or SVG — up to 2 MB."}
+        </p>
       </CardContent>
     </Card>
   );

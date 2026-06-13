@@ -41,10 +41,14 @@ export function CustomerSection({
   value,
   onChange,
   customers,
+  onSelectCustomer,
 }: {
   value: CustomerSlice;
   onChange: (patch: Partial<CustomerSlice>) => void;
   customers: RefCustomer[];
+  /** Fired when a saved customer is picked — lets the quote apply their
+   *  defaults (e.g. payment terms) that live outside the customer slice. */
+  onSelectCustomer?: (customer: RefCustomer) => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -90,6 +94,7 @@ export function CustomerSection({
       isTaxExempt: c.isTaxExempt,
       customerTaxExemptId: c.taxExemptId ?? "",
     });
+    onSelectCustomer?.(c);
   }
 
   return (

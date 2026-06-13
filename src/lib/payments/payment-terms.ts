@@ -128,6 +128,63 @@ export function allocateSchedule(
   return { rows, nextDue: rows.find((r) => r.state === "due") ?? null };
 }
 
+/** Add whole days to a YYYY-MM-DD date, returning YYYY-MM-DD (UTC, no tz drift). */
+function addDays(isoDate: string, days: number): string {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const dt = new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
+/**
+ * Absolute due date (YYYY-MM-DD) for an installment given the invoice's issue
+ * date — or null when the trigger is event-based (on completion / on delivery)
+ * and has no fixed calendar date.
+ */
+export function installmentDueDate(inst: PaymentInstallment, issueDate: string): string | null {
+  switch (inst.trigger) {
+    case "at_order":
+    case "on_receipt":
+      return issueDate;
+    case "net_days":
+      return addDays(issueDate, inst.netDays);
+    default:
+      return null;
+  }
+}
+
+export type DatedInstallment = AllocatedInstallment & {
+  /** Absolute due date (YYYY-MM-DD), or null for event-based triggers. */
+  dueDate: string | null;
+  /** Unpaid and its computable due date is in the past. */
+  overdue: boolean;
+};
+
+/**
+ * Allocate payments across the schedule (earliest-first) and stamp each
+ * installment with its due date + whether it's overdue as of `today`. Read-time
+ * only — nothing is persisted, so this stays correct without a scheduler.
+ */
+export function scheduleWithDates(
+  installments: PaymentInstallment[],
+  total: number,
+  amountPaid: number,
+  issueDate: string,
+  today: string,
+): { rows: DatedInstallment[]; nextDue: DatedInstallment | null; anyOverdue: boolean } {
+  const { rows, nextDue } = allocateSchedule(installments, total, amountPaid);
+  const dated: DatedInstallment[] = rows.map((r) => {
+    const dueDate = installmentDueDate(r, issueDate);
+    const overdue = r.remaining > 0.005 && dueDate !== null && dueDate < today;
+    return { ...r, dueDate, overdue };
+  });
+  return {
+    rows: dated,
+    nextDue: nextDue ? (dated.find((r) => r.id === nextDue.id) ?? null) : null,
+    anyOverdue: dated.some((r) => r.overdue),
+  };
+}
+
 /**
  * How much of `total` the term collects, as a fraction. 1 means it adds up
  * exactly; <1 under-collects, >1 over-collects. Fixed installments are measured

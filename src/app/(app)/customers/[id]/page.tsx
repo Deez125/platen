@@ -51,6 +51,13 @@ export default async function CustomerDetailPage({
     notFound();
   }
 
+  const { data: terms } = await supabase
+    .from("payment_term_options")
+    .select("name")
+    .eq("tenant_id", orgId)
+    .order("sort_order", { ascending: true });
+  const paymentTerms = ((terms ?? []) as { name: string }[]).map((t) => t.name);
+
   const initial = {
     name: customer.name,
     company: customer.company ?? "",
@@ -88,6 +95,7 @@ export default async function CustomerDetailPage({
         tenantId={customer.tenant_id}
         initial={initial}
         initialLogoUrl={customer.logo_url}
+        paymentTerms={paymentTerms}
       />
     </>
   );

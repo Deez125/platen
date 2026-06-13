@@ -10,16 +10,57 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Ring } from "@/components/ui/ring";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { type CustomerInput, createCustomer, updateCustomer } from "@/lib/actions/customers";
 import { createClient } from "@/lib/supabase/browser";
+
+const NO_TERM = "__no_term__";
 
 type Props = {
   customerId?: string; // present = edit mode
   tenantId: string;
   initial?: Partial<CustomerInput>;
   initialLogoUrl?: string | null;
+  /** Names of the org's saved payment terms, for the default-terms dropdown. */
+  paymentTerms?: string[];
 };
+
+/**
+ * Progressive phone mask. Strips everything but digits (so letters never stick),
+ * formats US numbers as (XXX) XXX-XXXX, and — only if the user includes a
+ * country code (a leading "+" or an 11-digit number starting with 1) — keeps it
+ * as a "+CC " prefix. Country code is entirely optional.
+ */
+function formatPhoneInput(input: string): string {
+  const hasPlus = input.trimStart().startsWith("+");
+  const digits = input.replace(/\D/g, "");
+  if (!digits) return hasPlus ? "+" : "";
+
+  const local = (d: string): string => {
+    const x = d.slice(0, 10);
+    if (x.length === 0) return "";
+    if (x.length < 4) return `(${x}`;
+    if (x.length < 7) return `(${x.slice(0, 3)}) ${x.slice(3)}`;
+    return `(${x.slice(0, 3)}) ${x.slice(3, 6)}-${x.slice(6)}`;
+  };
+
+  if (hasPlus) {
+    if (digits.startsWith("1")) return `+1 ${local(digits.slice(1))}`.trimEnd();
+    if (digits.length > 10) {
+      return `+${digits.slice(0, digits.length - 10)} ${local(digits.slice(-10))}`;
+    }
+    return `+${digits}`;
+  }
+  if (digits.length === 11 && digits.startsWith("1")) return `+1 ${local(digits.slice(1))}`;
+  return local(digits.slice(0, 10));
+}
 
 const emptyState: CustomerInput = {
   name: "",
@@ -37,10 +78,21 @@ const emptyState: CustomerInput = {
   notes: "",
 };
 
-export function CustomerForm({ customerId, tenantId, initial, initialLogoUrl }: Props) {
+export function CustomerForm({
+  customerId,
+  tenantId,
+  initial,
+  initialLogoUrl,
+  paymentTerms = [],
+}: Props) {
   const router = useRouter();
   const isEdit = !!customerId;
   const [form, setForm] = useState<CustomerInput>({ ...emptyState, ...initial });
+  // Keep a legacy/free-text value selectable so editing doesn't silently drop it.
+  const termOptions =
+    form.defaultPaymentTerms && !paymentTerms.includes(form.defaultPaymentTerms)
+      ? [form.defaultPaymentTerms, ...paymentTerms]
+      : paymentTerms;
   const [stagedLogo, setStagedLogo] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -145,7 +197,7 @@ export function CustomerForm({ customerId, tenantId, initial, initialLogoUrl }: 
                 id="cust-company"
                 value={form.company}
                 onChange={(e) => update({ company: e.target.value })}
-                placeholder="Acme Co."
+                placeholder="Riverside Athletics"
               />
             </div>
           </div>
@@ -157,7 +209,7 @@ export function CustomerForm({ customerId, tenantId, initial, initialLogoUrl }: 
                 type="email"
                 value={form.email}
                 onChange={(e) => update({ email: e.target.value })}
-                placeholder="jane@acme.com"
+                placeholder="jane@riverside.co"
               />
             </div>
             <div className="space-y-2">
@@ -165,9 +217,10 @@ export function CustomerForm({ customerId, tenantId, initial, initialLogoUrl }: 
               <Input
                 id="cust-phone"
                 type="tel"
+                inputMode="tel"
                 value={form.phone}
-                onChange={(e) => update({ phone: e.target.value })}
-                placeholder="(555) 555-5555"
+                onChange={(e) => update({ phone: formatPhoneInput(e.target.value) })}
+                placeholder="(555) 123-4567"
               />
             </div>
           </div>
@@ -252,12 +305,22 @@ export function CustomerForm({ customerId, tenantId, initial, initialLogoUrl }: 
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="cust-terms">Default payment terms</Label>
-            <Input
-              id="cust-terms"
-              value={form.defaultPaymentTerms}
-              onChange={(e) => update({ defaultPaymentTerms: e.target.value })}
-              placeholder="Net 30"
-            />
+            <Select
+              value={form.defaultPaymentTerms ? form.defaultPaymentTerms : NO_TERM}
+              onValueChange={(v) => update({ defaultPaymentTerms: v === NO_TERM ? "" : v })}
+            >
+              <SelectTrigger id="cust-terms">
+                <SelectValue placeholder="None" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_TERM}>None</SelectItem>
+                {termOptions.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {t}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex items-center gap-2">
             <input

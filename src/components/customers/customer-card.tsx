@@ -86,7 +86,7 @@ export function CustomerCard({
 
   if (onSelect) {
     return (
-      <button type="button" onClick={onSelect} className="group block w-full">
+      <button type="button" onClick={onSelect} className="group block w-full cursor-pointer">
         {body}
       </button>
     );

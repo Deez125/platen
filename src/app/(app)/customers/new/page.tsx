@@ -21,10 +21,17 @@ export default async function NewCustomerPage() {
   const tenantId = membership?.organization_id;
   if (!tenantId) redirect("/onboarding");
 
+  const { data: terms } = await supabase
+    .from("payment_term_options")
+    .select("name")
+    .eq("tenant_id", tenantId)
+    .order("sort_order", { ascending: true });
+  const paymentTerms = ((terms ?? []) as { name: string }[]).map((t) => t.name);
+
   return (
     <>
       <PageHeader title="New customer" subtitle="Add a new customer to your shop." />
-      <CustomerForm tenantId={tenantId} />
+      <CustomerForm tenantId={tenantId} paymentTerms={paymentTerms} />
     </>
   );
 }

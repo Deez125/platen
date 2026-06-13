@@ -18,8 +18,9 @@ import {
 } from "@/components/ui/table";
 import { getActiveContext } from "@/lib/auth/session";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { type PaymentInstallment, allocateSchedule } from "@/lib/payments/payment-terms";
+import { type PaymentInstallment, scheduleWithDates } from "@/lib/payments/payment-terms";
 import { createClient } from "@/lib/supabase/server";
+import { cn } from "@/lib/utils";
 
 type InvoiceRow = {
   id: string;
@@ -111,12 +112,28 @@ export default async function InvoiceDetailPage({
   const tax = Number(invoice.tax_amount);
 
   // Payment schedule snapshot (carried from the quote) → progress against
-  // payments recorded so far, plus the next installment to collect.
+  // payments recorded so far, with each installment's due date + overdue flag.
   const schedule = invoice.payment_schedule ?? [];
-  const { rows: scheduleRows, nextDue } =
-    schedule.length > 0
-      ? allocateSchedule(schedule, Number(invoice.total), Number(invoice.amount_paid))
-      : { rows: [], nextDue: null };
+  const today = new Date().toISOString().slice(0, 10);
+  const {
+    rows: scheduleRows,
+    nextDue,
+    anyOverdue,
+  } = schedule.length > 0
+    ? scheduleWithDates(
+        schedule,
+        Number(invoice.total),
+        Number(invoice.amount_paid),
+        invoice.issue_date,
+        today,
+      )
+    : { rows: [], nextDue: null, anyOverdue: false };
+  // Read-time status: a live invoice with a past-due unpaid installment reads
+  // as "overdue" (never persisted — there's no scheduler to write it).
+  const effectiveStatus =
+    anyOverdue && (invoice.status === "pending" || invoice.status === "deposit_paid")
+      ? "overdue"
+      : invoice.status;
 
   return (
     <>
@@ -133,7 +150,7 @@ export default async function InvoiceDetailPage({
         subtitle={
           <span className="flex items-center gap-2">
             {customer}
-            <InvoiceStatusBadge status={invoice.status} />
+            <InvoiceStatusBadge status={effectiveStatus} />
           </span>
         }
         actions={
@@ -233,13 +250,25 @@ export default async function InvoiceDetailPage({
                   >
                     <div className="min-w-0">
                       <div className="font-medium">{r.label || "Installment"}</div>
-                      <div className="text-xs text-muted-foreground">{r.dueLabel}</div>
+                      <div
+                        className={cn(
+                          "text-xs",
+                          r.overdue ? "text-destructive" : "text-muted-foreground",
+                        )}
+                      >
+                        {r.dueDate ? formatDate(r.dueDate) : r.dueLabel}
+                        {r.overdue ? " · overdue" : ""}
+                      </div>
                     </div>
                     <div className="text-right">
                       <div className="font-medium tabular-nums">{formatCurrency(r.amount)}</div>
                       <div className="text-xs">
                         {r.state === "paid" ? (
                           <span className="text-success">Paid</span>
+                        ) : r.overdue ? (
+                          <span className="font-medium text-destructive">
+                            {formatCurrency(r.remaining)} overdue
+                          </span>
                         ) : r.state === "due" ? (
                           <span className="font-medium text-foreground">
                             {formatCurrency(r.remaining)} due

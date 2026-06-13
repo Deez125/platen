@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/table";
 import { getActiveOrgId } from "@/lib/auth/session";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { type PaymentInstallment, scheduleWithDates } from "@/lib/payments/payment-terms";
 import { createClient } from "@/lib/supabase/server";
 
 type InvoiceRow = {
@@ -30,6 +31,8 @@ type InvoiceRow = {
   customer_company: string | null;
   total: string;
   amount_due: string | null;
+  amount_paid: string;
+  payment_schedule: PaymentInstallment[] | null;
   customers: { logo_url: string | null } | null;
 };
 
@@ -57,14 +60,35 @@ export default async function InvoicesPage({
   let query = supabase
     .from("invoices")
     .select(
-      "id, invoice_number, status, issue_date, customer_name, customer_company, total, amount_due, customers(logo_url)",
+      "id, invoice_number, status, issue_date, customer_name, customer_company, total, amount_due, amount_paid, payment_schedule, customers(logo_url)",
     )
     .eq("tenant_id", orgId)
     .order("created_at", { ascending: false });
-  if (active !== "all") query = query.eq("status", active);
+  // "overdue" isn't a stored status — it's computed from the schedule below, so
+  // don't filter on it in SQL (the other statuses are real columns).
+  if (active !== "all" && active !== "overdue") query = query.eq("status", active);
 
   const { data } = await query;
-  const rows = (data ?? []) as unknown as InvoiceRow[];
+  const today = new Date().toISOString().slice(0, 10);
+
+  /** Stored status, upgraded to "overdue" when a live invoice has a past-due
+   *  unpaid installment in its payment schedule. */
+  const effectiveStatus = (inv: InvoiceRow): string => {
+    if (inv.status !== "pending" && inv.status !== "deposit_paid") return inv.status;
+    const sched = inv.payment_schedule ?? [];
+    if (sched.length === 0) return inv.status;
+    const { anyOverdue } = scheduleWithDates(
+      sched,
+      Number(inv.total),
+      Number(inv.amount_paid),
+      inv.issue_date,
+      today,
+    );
+    return anyOverdue ? "overdue" : inv.status;
+  };
+
+  let rows = (data ?? []) as unknown as InvoiceRow[];
+  if (active === "overdue") rows = rows.filter((inv) => effectiveStatus(inv) === "overdue");
 
   return (
     <>
@@ -97,7 +121,7 @@ export default async function InvoicesPage({
               key={inv.id}
               id={inv.id}
               invoiceNumber={inv.invoice_number}
-              status={inv.status}
+              status={effectiveStatus(inv)}
               customer={inv.customer_company || inv.customer_name || "—"}
               logoUrl={inv.customers?.logo_url ?? null}
               total={inv.total}
@@ -134,7 +158,7 @@ export default async function InvoicesPage({
                   </TableCell>
                   <TableCell>
                     <Link href={`/invoices/${inv.id}`} className="block">
-                      <InvoiceStatusBadge status={inv.status} />
+                      <InvoiceStatusBadge status={effectiveStatus(inv)} />
                     </Link>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
