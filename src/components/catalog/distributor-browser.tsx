@@ -52,16 +52,18 @@ type Props = {
   total: number;
   page: number;
   pageSize: number;
+  /** Active distributor source slug (which catalog is being browsed). */
+  source: string;
   filters: Filters;
 };
 
 const ALL = "__all__";
 const NO_CATEGORY = "__none__";
 
-// Distributor sources — only SanMar is wired for now.
+// Distributor sources. SanMar + S&S catalogs are loaded; AlphaBroder is next.
 const DISTRIBUTORS = [
   { slug: "sanmar", name: "SanMar", enabled: true },
-  { slug: "ssactivewear", name: "S&S Activewear", enabled: false },
+  { slug: "ssactivewear", name: "S&S Activewear", enabled: true },
   { slug: "alphabroder", name: "AlphaBroder", enabled: false },
 ];
 
@@ -87,6 +89,7 @@ export function DistributorBrowser({
   total,
   page,
   pageSize,
+  source,
   filters,
 }: Props) {
   const router = useRouter();
@@ -98,11 +101,12 @@ export function DistributorBrowser({
   const [search, setSearch] = useState(filters.q);
   const debouncedSearch = useDebouncedValue(search, 350);
 
-  function navigate(next: Partial<Filters & { page: number }>) {
+  function navigate(next: Partial<Filters & { page: number; source: string }>) {
     const merged = {
       q: filters.q,
       brand: filters.brand,
       category: filters.category,
+      source,
       page,
       ...next,
     };
@@ -110,6 +114,7 @@ export function DistributorBrowser({
     if (merged.q) params.set("q", merged.q);
     if (merged.brand) params.set("brand", merged.brand);
     if (merged.category) params.set("category", merged.category);
+    if (merged.source && merged.source !== "sanmar") params.set("source", merged.source);
     if (merged.page && merged.page > 1) params.set("page", String(merged.page));
     const qs = params.toString();
     startTransition(() => router.push(`/catalog/import${qs ? `?${qs}` : ""}`));
@@ -133,22 +138,32 @@ export function DistributorBrowser({
     <div className="space-y-4">
       {/* Distributor picker */}
       <div className="flex flex-wrap gap-2">
-        {DISTRIBUTORS.map((d) => (
-          <button
-            key={d.slug}
-            type="button"
-            disabled={!d.enabled}
-            className={cn(
-              "rounded-md border px-3 py-1.5 text-sm transition-colors",
-              d.enabled
-                ? "border-foreground bg-foreground text-background"
-                : "cursor-not-allowed border-border text-muted-foreground/50",
-            )}
-          >
-            {d.name}
-            {!d.enabled ? <span className="ml-1.5 text-[10px]">soon</span> : null}
-          </button>
-        ))}
+        {DISTRIBUTORS.map((d) => {
+          const active = d.slug === source;
+          return (
+            <button
+              key={d.slug}
+              type="button"
+              disabled={!d.enabled}
+              onClick={() => {
+                if (!d.enabled || active) return;
+                setSearch("");
+                navigate({ source: d.slug, q: "", brand: "", category: "", page: 1 });
+              }}
+              className={cn(
+                "rounded-md border px-3 py-1.5 text-sm transition-colors",
+                !d.enabled
+                  ? "cursor-not-allowed border-border text-muted-foreground/50"
+                  : active
+                    ? "border-foreground bg-foreground text-background"
+                    : "cursor-pointer border-border text-foreground hover:bg-muted",
+              )}
+            >
+              {d.name}
+              {!d.enabled ? <span className="ml-1.5 text-[10px]">soon</span> : null}
+            </button>
+          );
+        })}
       </div>
 
       {/* Filters */}

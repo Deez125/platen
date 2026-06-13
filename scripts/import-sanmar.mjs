@@ -238,8 +238,7 @@ async function main() {
         "min_price",
         "is_active",
       )}
-      ON CONFLICT (distributor_id, style_number) DO UPDATE SET
-        brand = EXCLUDED.brand,
+      ON CONFLICT (distributor_id, brand, style_number) DO UPDATE SET
         name = EXCLUDED.name,
         description = EXCLUDED.description,
         category = EXCLUDED.category,

@@ -1,0 +1,2 @@
+ALTER TABLE "distributor_products" DROP CONSTRAINT "distributor_products_distributor_style_unique";--> statement-breakpoint
+ALTER TABLE "distributor_products" ADD CONSTRAINT "distributor_products_distributor_brand_style_unique" UNIQUE("distributor_id","brand","style_number");

@@ -22,8 +22,10 @@ const SOURCE_SLUG = "ssactivewear";
 const SOURCE_NAME = "S&S Activewear";
 const API_BASE = "https://api.ssactivewear.com/v2";
 const CDN_BASE = "https://cdn.ssactivewear.com/";
-const STYLE_BATCH = 50; // styleIDs per /products request
+const STYLE_BATCH = 100; // styleIDs per /products request (fewer calls = less throttling)
 const VARIANT_BATCH = 1000; // rows per DB upsert
+const REQUEST_DELAY = 900; // ms between product calls, to stay under S&S's rate limit
+const THROTTLE_WAIT = 65000; // ms to wait when S&S returns 503 "being throttled"
 const LIMIT = Number.parseInt(process.argv[2] ?? "", 10) || null; // optional style cap
 
 /** Read a var from process.env, else parse it out of .env.local ourselves. */
@@ -67,7 +69,9 @@ if (!account || !apiKey) {
 const auth = `Basic ${Buffer.from(`${account}:${apiKey}`).toString("base64")}`;
 const sql = postgres(connectionString, { prepare: false, max: 1 });
 
-async function apiGet(path) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function apiGet(path, attempt = 0) {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: {
       Authorization: auth,
@@ -75,6 +79,12 @@ async function apiGet(path) {
       "User-Agent": "Mozilla/5.0 (compatible; apparel-shop-saas/1.0)",
     },
   });
+  // S&S throttles with 503 (and sometimes 429). Wait it out and retry.
+  if ((res.status === 503 || res.status === 429) && attempt < 8) {
+    console.log(`  throttled — waiting ${THROTTLE_WAIT / 1000}s then retrying…`);
+    await sleep(THROTTLE_WAIT);
+    return apiGet(path, attempt + 1);
+  }
   const text = await res.text();
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} — ${text.slice(0, 200)}`);
   return JSON.parse(text);
@@ -131,6 +141,9 @@ async function main() {
     RETURNING id
   `;
   const distributorId = source.id;
+  // Timestamp before any upserts — rows still older than this afterward weren't
+  // in the feed this run, so they get retired (full runs only).
+  const runStart = (await sql`SELECT now() AS now`)[0].now;
 
   // ── Pass 1: all styles (one call) → style-level metadata ──────────────
   console.log("Pass 1/2 — fetching styles…");
@@ -139,16 +152,18 @@ async function main() {
   if (LIMIT) styles = styles.slice(0, LIMIT);
   console.log(`  ${styles.length.toLocaleString()} styles`);
 
-  // styleID -> { meta..., colors:Set, minPrice } ; partNumber is our style_number.
+  // styleID -> meta. style_number = styleName (the manufacturer style #, e.g.
+  // "64000") so it matches how shops search + how SanMar styles read. styleName
+  // is only unique within a brand, so the DB key is (distributor, brand, style#).
   const byStyleId = new Map();
   for (const s of styles) {
     const styleId = s.styleID;
-    const partNumber = clean(s.partNumber);
-    if (styleId == null || !partNumber) continue;
+    const styleNumber = clean(s.styleName);
+    if (styleId == null || !styleNumber) continue;
     byStyleId.set(styleId, {
-      partNumber,
+      styleNumber,
       brand: clean(s.brandName) ?? "Unknown",
-      name: clean(s.title) ?? clean(s.styleName) ?? partNumber,
+      name: clean(s.title) ?? styleNumber,
       description: stripHtml(s.description),
       category: clean(s.baseCategory),
       image: imgUrl(s.styleImage),
@@ -161,7 +176,8 @@ async function main() {
   console.log("Pass 2/2 — fetching products in batches…");
   const styleIds = [...byStyleId.keys()];
   const skuRows = []; // { styleId, color, size, sizeOrder, sku, cost, casePrice, caseQty }
-  const fields = "sku,styleID,colorName,sizeName,sizeOrder,customerPrice,piecePrice,casePrice,caseQty";
+  const fields =
+    "sku,styleID,colorName,sizeName,sizeOrder,customerPrice,piecePrice,casePrice,caseQty";
 
   for (let i = 0; i < styleIds.length; i += STYLE_BATCH) {
     const batch = styleIds.slice(i, i + STYLE_BATCH);
@@ -189,16 +205,21 @@ async function main() {
     if ((i / STYLE_BATCH) % 10 === 0) {
       console.log(`  …${Math.min(i + STYLE_BATCH, styleIds.length)}/${styleIds.length} styles`);
     }
+    if (i + STYLE_BATCH < styleIds.length) await sleep(REQUEST_DELAY);
   }
   console.log(`  ${skuRows.length.toLocaleString()} SKU rows`);
 
   // ── Upsert products ───────────────────────────────────────────────────
   console.log("Upserting products…");
   const productRows = [];
+  const seenKeys = new Set(); // (brand, style#) is unique per S&S — guard a batch double-conflict
   for (const agg of byStyleId.values()) {
+    const key = `${agg.brand} ${agg.styleNumber}`;
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
     productRows.push({
       distributor_id: distributorId,
-      style_number: agg.partNumber,
+      style_number: agg.styleNumber,
       brand: agg.brand,
       name: agg.name,
       description: agg.description,
@@ -207,6 +228,7 @@ async function main() {
       color_count: agg.colors.size,
       min_price: agg.minPrice === null ? null : agg.minPrice.toFixed(2),
       is_active: true,
+      last_synced_at: runStart,
     });
   }
   for (let i = 0; i < productRows.length; i += 500) {
@@ -224,9 +246,9 @@ async function main() {
         "color_count",
         "min_price",
         "is_active",
+        "last_synced_at",
       )}
-      ON CONFLICT (distributor_id, style_number) DO UPDATE SET
-        brand = EXCLUDED.brand,
+      ON CONFLICT (distributor_id, brand, style_number) DO UPDATE SET
         name = EXCLUDED.name,
         description = EXCLUDED.description,
         category = EXCLUDED.category,
@@ -239,17 +261,17 @@ async function main() {
     `;
   }
 
-  // style_number (partNumber) -> product id, then styleID -> product id.
+  // (brand, style#) -> product id, then styleID -> product id.
   const idRows = await sql`
-    SELECT id, style_number FROM distributor_products WHERE distributor_id = ${distributorId}
+    SELECT id, brand, style_number FROM distributor_products WHERE distributor_id = ${distributorId}
   `;
-  const productIdByPart = new Map(idRows.map((r) => [r.style_number, r.id]));
+  const productIdByKey = new Map(idRows.map((r) => [`${r.brand} ${r.style_number}`, r.id]));
   const productIdByStyleId = new Map();
   for (const [styleId, agg] of byStyleId) {
-    const pid = productIdByPart.get(agg.partNumber);
+    const pid = productIdByKey.get(`${agg.brand} ${agg.styleNumber}`);
     if (pid) productIdByStyleId.set(styleId, pid);
   }
-  console.log(`  ${productIdByPart.size.toLocaleString()} products in catalog`);
+  console.log(`  ${productIdByKey.size.toLocaleString()} products in catalog`);
 
   // ── Upsert variants ───────────────────────────────────────────────────
   console.log("Upserting variants…");
@@ -304,9 +326,27 @@ async function main() {
   }
   await flush();
 
+  // ── Retire styles no longer in the feed (full runs only) ──────────────
+  // Everything still listed got last_synced_at = now() above; anything left
+  // older than runStart was dropped by S&S — deactivate it (re-activates if it
+  // returns). Timestamp-based so brand-shared style numbers retire correctly.
+  // Skipped on a --limit run, which only touches a subset by design.
+  if (!LIMIT) {
+    const retired = await sql`
+      UPDATE distributor_products
+      SET is_active = false, updated_at = now()
+      WHERE distributor_id = ${distributorId}
+        AND is_active = true
+        AND last_synced_at < ${runStart}
+    `;
+    if (retired.count > 0) {
+      console.log(`Retired ${retired.count} styles no longer in the S&S feed`);
+    }
+  }
+
   const secs = ((Date.now() - started) / 1000).toFixed(1);
   console.log(
-    `Done. ${productIdByPart.size.toLocaleString()} styles, ${variantTotal.toLocaleString()} variants (${dupSkipped.toLocaleString()} dup rows skipped) in ${secs}s.`,
+    `Done. ${productIdByKey.size.toLocaleString()} styles, ${variantTotal.toLocaleString()} variants (${dupSkipped.toLocaleString()} dup rows skipped) in ${secs}s.`,
   );
   await sql.end();
 }

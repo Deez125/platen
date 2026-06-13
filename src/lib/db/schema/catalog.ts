@@ -144,8 +144,11 @@ export const distributorProducts = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    unique("distributor_products_distributor_style_unique").on(
+    // Brand-scoped: manufacturer style numbers (style_number) are only unique
+    // within a brand for some distributors (S&S reuses e.g. "8662" across brands).
+    unique("distributor_products_distributor_brand_style_unique").on(
       table.distributorId,
+      table.brand,
       table.styleNumber,
     ),
     index("distributor_products_brand_style_idx").on(table.brand, table.styleNumber),
