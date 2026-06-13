@@ -1,0 +1,178 @@
+import { FileText, Plus } from "lucide-react";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+
+import { CustomerCell } from "@/components/common/customer-avatar";
+import { EmptyState } from "@/components/common/empty-state";
+import { ListFilterTabs } from "@/components/common/list-filter-tabs";
+import { ListViewToggle } from "@/components/common/list-view-toggle";
+import { PageHeader } from "@/components/common/page-header";
+import { QuoteCard } from "@/components/quotes/quote-card";
+import { QuoteStatusBadge } from "@/components/quotes/quote-status-badge";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { getActiveOrgId } from "@/lib/auth/session";
+import { formatCurrency, formatDate } from "@/lib/format";
+import { createClient } from "@/lib/supabase/server";
+
+type QuoteRow = {
+  id: string;
+  quote_number: string;
+  version: number;
+  status: string;
+  quote_date: string | null;
+  total: string | number | null;
+  customer_name: string | null;
+  customer_company: string | null;
+  // Live customer (via customer_id FK) — for the logo, which quotes don't snapshot.
+  customers: { logo_url: string | null } | null;
+};
+
+const FILTERS = [
+  { value: "all", label: "All" },
+  { value: "draft", label: "Draft" },
+  { value: "sent", label: "Sent" },
+  { value: "approved", label: "Approved" },
+  { value: "declined", label: "Declined" },
+];
+
+export default async function QuotesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string; view?: string }>;
+}) {
+  const { status, view: viewParam } = await searchParams;
+  const active = FILTERS.some((f) => f.value === status) ? (status as string) : "all";
+  const view: "list" | "grid" = viewParam === "grid" ? "grid" : "list";
+
+  const supabase = await createClient();
+  const orgId = await getActiveOrgId();
+  if (!orgId) redirect("/onboarding");
+
+  let query = supabase
+    .from("quotes")
+    .select(
+      "id, quote_number, version, status, quote_date, total, customer_name, customer_company, customers(logo_url)",
+    )
+    .eq("tenant_id", orgId)
+    .order("created_at", { ascending: false });
+  if (active !== "all") query = query.eq("status", active);
+
+  const { data } = await query;
+  // Supabase infers the to-one customers join as an array; it's an object at runtime.
+  const rows = (data ?? []) as unknown as QuoteRow[];
+
+  return (
+    <>
+      <PageHeader
+        title="Quotes"
+        subtitle={`${rows.length} ${rows.length === 1 ? "quote" : "quotes"}`}
+        actions={
+          <div className="flex items-center gap-2">
+            {rows.length > 0 ? (
+              <ListViewToggle view={view} status={active} basePath="/quotes" />
+            ) : null}
+            <Button asChild size="sm" className="gap-1.5">
+              <Link href="/quotes/new">
+                <Plus className="size-4" /> New quote
+              </Link>
+            </Button>
+          </div>
+        }
+      />
+
+      <ListFilterTabs basePath="/quotes" active={active} view={view} filters={FILTERS} />
+
+      {rows.length === 0 ? (
+        <EmptyState
+          icon={FileText}
+          title={active === "all" ? "No quotes yet" : "No quotes match this filter"}
+          description={
+            active === "all"
+              ? "Build your first quote to send to a customer."
+              : "Try a different status filter."
+          }
+          action={
+            <Button asChild size="sm" className="gap-1.5">
+              <Link href="/quotes/new">
+                <Plus className="size-4" /> New quote
+              </Link>
+            </Button>
+          }
+        />
+      ) : view === "grid" ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          {rows.map((q) => (
+            <QuoteCard
+              key={q.id}
+              id={q.id}
+              quoteNumber={q.quote_number}
+              version={q.version}
+              status={q.status}
+              customer={q.customer_company || q.customer_name || "—"}
+              logoUrl={q.customers?.logo_url ?? null}
+              total={q.total}
+              date={formatDate(q.quote_date)}
+            />
+          ))}
+        </div>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>Quote</TableHead>
+              <TableHead>Customer</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Date</TableHead>
+              <TableHead className="text-right">Total</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((q) => {
+              const customer = q.customer_company || q.customer_name || "—";
+              return (
+                <TableRow key={q.id} className="cursor-pointer">
+                  <TableCell className="font-medium">
+                    <Link href={`/quotes/${q.id}`} className="block">
+                      {q.quote_number}
+                      {q.version > 1 ? (
+                        <span className="ml-1 text-xs text-muted-foreground">v{q.version}</span>
+                      ) : null}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Link href={`/quotes/${q.id}`} className="block">
+                      <CustomerCell name={customer} logoUrl={q.customers?.logo_url ?? null} />
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Link href={`/quotes/${q.id}`} className="block">
+                      <QuoteStatusBadge status={q.status} />
+                    </Link>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    <Link href={`/quotes/${q.id}`} className="block">
+                      {formatDate(q.quote_date)}
+                    </Link>
+                  </TableCell>
+                  <TableCell className="text-right font-medium tabular-nums">
+                    <Link href={`/quotes/${q.id}`} className="block">
+                      {formatCurrency(q.total)}
+                    </Link>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      )}
+    </>
+  );
+}

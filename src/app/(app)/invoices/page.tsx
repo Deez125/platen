@@ -1,0 +1,163 @@
+import { Receipt } from "lucide-react";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+
+import { CustomerCell } from "@/components/common/customer-avatar";
+import { EmptyState } from "@/components/common/empty-state";
+import { ListFilterTabs } from "@/components/common/list-filter-tabs";
+import { ListViewToggle } from "@/components/common/list-view-toggle";
+import { PageHeader } from "@/components/common/page-header";
+import { InvoiceCard } from "@/components/invoices/invoice-card";
+import { InvoiceStatusBadge } from "@/components/invoices/invoice-status-badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { getActiveOrgId } from "@/lib/auth/session";
+import { formatCurrency, formatDate } from "@/lib/format";
+import { createClient } from "@/lib/supabase/server";
+
+type InvoiceRow = {
+  id: string;
+  invoice_number: string;
+  status: string;
+  issue_date: string;
+  customer_name: string | null;
+  customer_company: string | null;
+  total: string;
+  amount_due: string | null;
+  customers: { logo_url: string | null } | null;
+};
+
+const FILTERS = [
+  { value: "all", label: "All" },
+  { value: "pending", label: "Pending" },
+  { value: "deposit_paid", label: "Deposit paid" },
+  { value: "paid", label: "Paid" },
+  { value: "overdue", label: "Overdue" },
+];
+
+export default async function InvoicesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string; view?: string }>;
+}) {
+  const { status, view: viewParam } = await searchParams;
+  const active = FILTERS.some((f) => f.value === status) ? (status as string) : "all";
+  const view: "list" | "grid" = viewParam === "grid" ? "grid" : "list";
+
+  const supabase = await createClient();
+  const orgId = await getActiveOrgId();
+  if (!orgId) redirect("/onboarding");
+
+  let query = supabase
+    .from("invoices")
+    .select(
+      "id, invoice_number, status, issue_date, customer_name, customer_company, total, amount_due, customers(logo_url)",
+    )
+    .eq("tenant_id", orgId)
+    .order("created_at", { ascending: false });
+  if (active !== "all") query = query.eq("status", active);
+
+  const { data } = await query;
+  const rows = (data ?? []) as unknown as InvoiceRow[];
+
+  return (
+    <>
+      <PageHeader
+        title="Invoices"
+        subtitle={`${rows.length} ${rows.length === 1 ? "invoice" : "invoices"}`}
+        actions={
+          rows.length > 0 ? (
+            <ListViewToggle view={view} status={active} basePath="/invoices" />
+          ) : null
+        }
+      />
+
+      <ListFilterTabs basePath="/invoices" active={active} view={view} filters={FILTERS} />
+
+      {rows.length === 0 ? (
+        <EmptyState
+          icon={Receipt}
+          title={active === "all" ? "No invoices yet" : "No invoices match this filter"}
+          description={
+            active === "all"
+              ? "Approve a quote and generate an invoice to start billing."
+              : "Try a different status filter."
+          }
+        />
+      ) : view === "grid" ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          {rows.map((inv) => (
+            <InvoiceCard
+              key={inv.id}
+              id={inv.id}
+              invoiceNumber={inv.invoice_number}
+              status={inv.status}
+              customer={inv.customer_company || inv.customer_name || "—"}
+              logoUrl={inv.customers?.logo_url ?? null}
+              total={inv.total}
+              date={formatDate(inv.issue_date)}
+            />
+          ))}
+        </div>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>Invoice</TableHead>
+              <TableHead>Customer</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Issued</TableHead>
+              <TableHead className="text-right">Total</TableHead>
+              <TableHead className="text-right">Amount due</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((inv) => {
+              const customer = inv.customer_company || inv.customer_name || "—";
+              return (
+                <TableRow key={inv.id} className="cursor-pointer">
+                  <TableCell className="font-medium">
+                    <Link href={`/invoices/${inv.id}`} className="block">
+                      {inv.invoice_number}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Link href={`/invoices/${inv.id}`} className="block">
+                      <CustomerCell name={customer} logoUrl={inv.customers?.logo_url ?? null} />
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Link href={`/invoices/${inv.id}`} className="block">
+                      <InvoiceStatusBadge status={inv.status} />
+                    </Link>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    <Link href={`/invoices/${inv.id}`} className="block">
+                      {formatDate(inv.issue_date)}
+                    </Link>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    <Link href={`/invoices/${inv.id}`} className="block">
+                      {formatCurrency(inv.total)}
+                    </Link>
+                  </TableCell>
+                  <TableCell className="text-right font-medium tabular-nums">
+                    <Link href={`/invoices/${inv.id}`} className="block">
+                      {formatCurrency(inv.amount_due)}
+                    </Link>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      )}
+    </>
+  );
+}

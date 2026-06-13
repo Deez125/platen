@@ -1,0 +1,125 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1779862728518,
+      "tag": "0000_wet_luminals",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1779863594796,
+      "tag": "0001_brainy_sumo",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779866627604,
+      "tag": "0002_naive_snowbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779867003811,
+      "tag": "0003_slim_vision",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1779868564389,
+      "tag": "0004_salty_spectrum",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779870717011,
+      "tag": "0005_sweet_sugar_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1779924189873,
+      "tag": "0006_kind_betty_brant",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1779929833190,
+      "tag": "0007_careful_gladiator",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1779934839121,
+      "tag": "0008_lucky_jackal",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1779937168574,
+      "tag": "0009_motionless_dragon_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1780002427376,
+      "tag": "0010_late_kate_bishop",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1780039880315,
+      "tag": "0011_elite_black_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1780098123523,
+      "tag": "0012_opposite_colossus",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1780378869810,
+      "tag": "0013_wise_jasper_sitwell",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1781243666746,
+      "tag": "0014_aromatic_randall",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1781248509412,
+      "tag": "0015_cuddly_obadiah_stane",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1781249636022,
+      "tag": "0016_tan_ezekiel",
+      "breakpoints": true
+    }
+  ]
+}
