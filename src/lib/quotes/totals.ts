@@ -100,8 +100,12 @@ export function computeQuoteTotals(lines: LineItemCalc[], adj: QuoteAdjustments)
       : Math.min(adj.discountValue || 0, subtotal),
   );
   const taxableBase = round2(subtotal - discountAmount);
-  const taxAmount = adj.isTaxExempt ? 0 : round2(taxableBase * (adj.taxRate || 0));
   const shippingAmount = round2(adj.shippingAmount || 0);
+  // Tax applies to goods (after discount) + shipping. taxableBase itself stays
+  // goods-only since profit is measured against it below.
+  const taxAmount = adj.isTaxExempt
+    ? 0
+    : round2((taxableBase + shippingAmount) * (adj.taxRate || 0));
   const total = round2(taxableBase + taxAmount + shippingAmount);
 
   // Profit is on the goods/printing only — excludes pass-through tax and

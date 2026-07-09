@@ -13,6 +13,11 @@ type Props = {
   categoryName: string | null;
   startingPrice: number | null;
   custom?: boolean;
+  /** Where the product came from — distributor name, or "Custom". Shown on the card. */
+  source?: string | null;
+  /** Manufacturer brand + style/model number (distributor products). */
+  brand?: string | null;
+  styleNumber?: string | null;
 };
 
 export function ProductCard({
@@ -23,7 +28,11 @@ export function ProductCard({
   categoryName,
   startingPrice,
   custom = false,
+  source = null,
+  brand = null,
+  styleNumber = null,
 }: Props) {
+  const modelLine = [brand, styleNumber].filter(Boolean).join(" · ");
   return (
     <Link href={`/catalog/products/${id}`} className="group block">
       <Card className="h-full overflow-hidden border-transparent bg-sidebar p-0 transition-colors hover:bg-sidebar-accent/50">
@@ -31,6 +40,10 @@ export function ProductCard({
           {custom ? (
             <Badge variant="info" className="absolute top-2 left-2 text-[10px]">
               Custom
+            </Badge>
+          ) : source ? (
+            <Badge variant="secondary" className="absolute top-2 left-2 text-[10px]">
+              {source}
             </Badge>
           ) : null}
           {imageUrl ? (
@@ -44,13 +57,16 @@ export function ProductCard({
         </div>
         <div className="space-y-1 p-3">
           <div className="flex items-start justify-between gap-2">
-            <span className="truncate text-sm font-medium">{name}</span>
+            <span className="truncate text-sm font-medium">{modelLine || name}</span>
             {!isActive ? (
               <Badge variant="neutral" className="shrink-0 text-[10px]">
                 Inactive
               </Badge>
             ) : null}
           </div>
+          {modelLine ? (
+            <div className="truncate text-xs text-muted-foreground">{name}</div>
+          ) : null}
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span className="truncate">{categoryName ?? "Uncategorized"}</span>
             {startingPrice !== null ? (

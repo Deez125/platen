@@ -9,6 +9,7 @@ import { ListViewToggle } from "@/components/common/list-view-toggle";
 import { PageHeader } from "@/components/common/page-header";
 import { JobCard } from "@/components/jobs/job-card";
 import { JobStatusBadge } from "@/components/jobs/job-status";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -29,6 +30,15 @@ type JobRow = {
   customer_name: string | null;
   job_work_units: { status: string }[] | null;
   customers: { company: string | null; logo_url: string | null } | null;
+  // Payment status read straight from the linked invoice.
+  invoices: { amount_paid: string | number | null; total: string | number | null } | null;
+};
+
+type PayStatus = "unpaid" | "partial" | "paid";
+const PAYMENT: Record<PayStatus, { label: string; variant: "neutral" | "warning" | "success" }> = {
+  unpaid: { label: "Unpaid", variant: "neutral" },
+  partial: { label: "Partial", variant: "warning" },
+  paid: { label: "Paid", variant: "success" },
 };
 
 const FILTERS = [
@@ -55,7 +65,7 @@ export default async function JobsPage({
   let query = supabase
     .from("jobs")
     .select(
-      "id, invoice_number, status, due_date, customer_name, job_work_units(status), customers(company, logo_url)",
+      "id, invoice_number, status, due_date, customer_name, job_work_units(status), customers(company, logo_url), invoices(amount_paid, total)",
     )
     .eq("tenant_id", orgId)
     .order("created_at", { ascending: false });
@@ -70,6 +80,13 @@ export default async function JobsPage({
   function readyOf(job: JobRow) {
     const units = job.job_work_units ?? [];
     return { ready: units.filter((u) => u.status === "ready").length, total: units.length };
+  }
+  function paymentOf(job: JobRow): PayStatus {
+    const paid = Number(job.invoices?.amount_paid ?? 0) || 0;
+    const total = Number(job.invoices?.total ?? 0) || 0;
+    if (paid <= 0) return "unpaid";
+    if (total > 0 && paid >= total) return "paid";
+    return "partial";
   }
 
   return (
@@ -119,14 +136,16 @@ export default async function JobsPage({
             <TableRow className="hover:bg-transparent">
               <TableHead>Job</TableHead>
               <TableHead>Customer</TableHead>
-              <TableHead>Status</TableHead>
               <TableHead>Due</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Payment</TableHead>
               <TableHead className="text-right">Units ready</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.map((job) => {
               const { ready, total } = readyOf(job);
+              const pay = PAYMENT[paymentOf(job)];
               return (
                 <TableRow key={job.id} className="cursor-pointer">
                   <TableCell className="font-medium">
@@ -142,14 +161,21 @@ export default async function JobsPage({
                       />
                     </Link>
                   </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    <Link href={`/jobs/${job.id}`} className="block">
+                      {formatDate(job.due_date)}
+                    </Link>
+                  </TableCell>
                   <TableCell>
                     <Link href={`/jobs/${job.id}`} className="block">
                       <JobStatusBadge status={job.status} />
                     </Link>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell>
                     <Link href={`/jobs/${job.id}`} className="block">
-                      {formatDate(job.due_date)}
+                      <Badge variant={pay.variant} className="text-[10px]">
+                        {pay.label}
+                      </Badge>
                     </Link>
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">

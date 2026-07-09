@@ -1,7 +1,7 @@
 import type { PdfLineRow, PdfQuote } from "@/lib/pdf/quote-pdf";
-import { computeLineTotals, computeQuoteTotals } from "@/lib/quotes/totals";
+import { computeLineTotals, computeQuoteTotals, round2 } from "@/lib/quotes/totals";
 import type { BuilderLine } from "@/lib/quotes/types";
-import { lineToCalc } from "@/lib/quotes/types";
+import { lineToCalc, sizeRank } from "@/lib/quotes/types";
 
 /** Org-side branding info the PDF needs. */
 export type PdfOrg = {
@@ -108,6 +108,8 @@ type DbLineItem = {
   total_price: string | number;
   color_name: string | null;
   sort_order: number | null;
+  sizes_breakdown: { size: string; qty: number; unitPrice: number }[] | null;
+  placements_data: { price: number }[] | null;
 };
 
 const num = (v: string | number | null | undefined): number => {
@@ -115,19 +117,85 @@ const num = (v: string | number | null | undefined): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+// Sizes 2XL and up carry upcharges, so they bill on their own row. Unknown
+// labels (rank last) stay with the standard group.
+const EXTENDED_FROM = sizeRank("2XL");
+const UNKNOWN_RANK = sizeRank("__unknown__");
+const isExtendedSize = (label: string): boolean => {
+  const r = sizeRank(label);
+  return r >= EXTENDED_FROM && r !== UNKNOWN_RANK;
+};
+
+type SizeCell = { size: string; qty: number; unitPrice: number };
+
+/**
+ * Expand one line's per-size breakdown into display rows: standard sizes
+ * (XS–XL) share one row, and each extended size (2XL, 3XL, …) gets its own row.
+ * Each placement's per-garment charge is folded into the per-unit price so the
+ * rows still add up to the line total. Returns [] when there are no sized units
+ * (caller falls back to a single blended row).
+ */
+function sizeRows(
+  baseName: string,
+  color: string | null,
+  cells: SizeCell[],
+  placementPerGarment: number,
+  description: string | null,
+): PdfLineRow[] {
+  const active = cells.filter((c) => c.qty > 0);
+  // Standard sizes (XS–XL) share one row. Each extended size (2XL, 3XL, …) gets
+  // its own row — they're priced individually, so blending them would misreport
+  // the per-unit price.
+  const standard = active.filter((c) => !isExtendedSize(c.size));
+  const extended = active
+    .filter((c) => isExtendedSize(c.size))
+    .sort((a, b) => sizeRank(a.size) - sizeRank(b.size));
+  const buckets: SizeCell[][] = [standard, ...extended.map((c) => [c])];
+
+  const rows: PdfLineRow[] = [];
+  for (const bucket of buckets) {
+    if (bucket.length === 0) continue;
+    const sorted = [...bucket].sort((a, b) => sizeRank(a.size) - sizeRank(b.size));
+    const qty = sorted.reduce((s, c) => s + c.qty, 0);
+    const amount = round2(
+      sorted.reduce((s, c) => s + c.qty * (c.unitPrice + placementPerGarment), 0),
+    );
+    const list = sorted.map((c) => c.size).join(", ");
+    rows.push({
+      name: color ? `${baseName} — ${color} ${list}` : `${baseName} ${list}`,
+      description: rows.length === 0 ? description : null,
+      quantity: qty,
+      unitPrice: qty > 0 ? amount / qty : 0,
+      amount,
+    });
+  }
+  return rows;
+}
+
 export function pdfQuoteFromDb(quote: DbQuote, items: DbLineItem[], org: PdfOrg): PdfQuote {
   const sorted = [...items].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-  const rows: PdfLineRow[] = sorted.map((li) => {
+  const rows: PdfLineRow[] = sorted.flatMap((li) => {
+    const cells = (li.sizes_breakdown ?? []).map((s) => ({
+      size: s.size,
+      qty: s.qty || 0,
+      unitPrice: s.unitPrice || 0,
+    }));
+    if (cells.some((c) => c.qty > 0)) {
+      const placement = (li.placements_data ?? []).reduce((s, p) => s + (p.price || 0), 0);
+      return sizeRows(li.name, li.color_name, cells, placement, li.description);
+    }
     const qty = li.quantity;
     const amount = num(li.total_price);
     const unit = qty > 0 ? amount / qty : num(li.unit_price);
-    return {
-      name: li.color_name ? `${li.name} — ${li.color_name}` : li.name,
-      description: li.description,
-      quantity: qty,
-      unitPrice: unit,
-      amount,
-    };
+    return [
+      {
+        name: li.color_name ? `${li.name} — ${li.color_name}` : li.name,
+        description: li.description,
+        quantity: qty,
+        unitPrice: unit,
+        amount,
+      },
+    ];
   });
 
   return {
@@ -204,20 +272,31 @@ export type BuilderSnapshot = {
 export function pdfQuoteFromBuilder(snap: BuilderSnapshot, org: PdfOrg): PdfQuote {
   const totals = computeQuoteTotals(snap.lines.map(lineToCalc), snap.adjustments);
 
-  const rows: PdfLineRow[] = snap.lines.map((line) => {
+  const rows: PdfLineRow[] = snap.lines.flatMap((line) => {
+    const baseName = line.name || "Untitled item";
+    const description = line.description.trim() === "" ? null : line.description;
+    const cells = (line.sizes ?? []).map((s) => ({
+      size: s.size,
+      qty: Math.trunc(Number(s.qty) || 0),
+      unitPrice: Number(s.unitPrice) || 0,
+    }));
+    if (cells.some((c) => c.qty > 0)) {
+      const placement = (line.placements ?? []).reduce((s, p) => s + (Number(p.price) || 0), 0);
+      return sizeRows(baseName, line.colorName || null, cells, placement, description);
+    }
     const lineTotals = computeLineTotals(lineToCalc(line));
     const qty = lineTotals.quantity;
     const amount = lineTotals.totalPrice;
     const unit = qty > 0 ? amount / qty : Number(line.unitPrice) || 0;
-    return {
-      name: line.colorName
-        ? `${line.name || "Untitled item"} — ${line.colorName}`
-        : line.name || "Untitled item",
-      description: line.description.trim() === "" ? null : line.description,
-      quantity: qty,
-      unitPrice: unit,
-      amount,
-    };
+    return [
+      {
+        name: line.colorName ? `${baseName} — ${line.colorName}` : baseName,
+        description,
+        quantity: qty,
+        unitPrice: unit,
+        amount,
+      },
+    ];
   });
 
   return {

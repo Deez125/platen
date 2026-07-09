@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 
 type DatesResult = { ok: true; dates: Record<string, string> } | { ok: false; error: string };
 type Result = { ok: true } | { ok: false; error: string };
+type NumberResult = { ok: true; number: string } | { ok: false; error: string };
 
 const MANAGE_ROLES = new Set(["owner", "admin"]);
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -86,5 +87,49 @@ export async function setEntityDates(
 
   revalidatePath(`/${ENTITY_TABLE[kind]}/${id}`);
   revalidatePath(`/${ENTITY_TABLE[kind]}`);
+  return { ok: true };
+}
+
+/** Debug-only: read a quote's current number. Tenant-scoped. */
+export async function getQuoteNumber(quoteId: string): Promise<NumberResult> {
+  const ctx = await getActiveContext();
+  if (!ctx) return { ok: false, error: "No active organization" };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("quotes")
+    .select("quote_number")
+    .eq("id", quoteId)
+    .eq("tenant_id", ctx.orgId)
+    .maybeSingle<{ quote_number: string }>();
+  if (error) return { ok: false, error: error.message };
+  if (!data) return { ok: false, error: "Not found" };
+  return { ok: true, number: data.quote_number };
+}
+
+/**
+ * Debug-only: overwrite a quote's number (handy when numbering is random and you
+ * want a specific value). Owner/admin + tenant-scoped; rejects duplicates.
+ */
+export async function setQuoteNumber(quoteId: string, quoteNumber: string): Promise<Result> {
+  const ctx = await getActiveContext();
+  if (!ctx) return { ok: false, error: "No active organization" };
+  if (!MANAGE_ROLES.has(ctx.role)) {
+    return { ok: false, error: "Only an owner or admin can edit the quote number." };
+  }
+  const value = quoteNumber.trim();
+  if (!value) return { ok: false, error: "Quote number can't be empty." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("quotes")
+    .update({ quote_number: value })
+    .eq("id", quoteId)
+    .eq("tenant_id", ctx.orgId);
+  if (error) {
+    if (error.code === "23505") return { ok: false, error: "That quote number is already in use." };
+    return { ok: false, error: error.message };
+  }
+  revalidatePath(`/quotes/${quoteId}`);
+  revalidatePath("/quotes");
   return { ok: true };
 }

@@ -1,6 +1,14 @@
 "use client";
 
-import { Bug, CalendarClock, CircleCheck, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
+import {
+  Bug,
+  CalendarClock,
+  CircleCheck,
+  Hash,
+  RotateCcw,
+  Trash2,
+  TriangleAlert,
+} from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -13,7 +21,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Ring } from "@/components/ui/ring";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { getEntityDates, setEntityDates } from "@/lib/actions/debug";
+import {
+  getEntityDates,
+  getQuoteNumber,
+  setEntityDates,
+  setQuoteNumber,
+} from "@/lib/actions/debug";
 import { DATE_FIELDS } from "@/lib/debug/date-fields";
 import { cn } from "@/lib/utils";
 
@@ -42,8 +55,11 @@ export function DebugMenu() {
   const [dates, setDates] = useState<Record<string, string>>({});
   const [loadingDates, setLoadingDates] = useState(false);
   const [savingDates, setSavingDates] = useState(false);
+  const [quoteNumberInput, setQuoteNumberInput] = useState("");
+  const [savingNumber, setSavingNumber] = useState(false);
 
-  // Load the current entity's dates whenever the panel opens on a detail page.
+  // Load the current entity's dates (and, for quotes, its number) whenever the
+  // panel opens on a detail page.
   // biome-ignore lint/correctness/useExhaustiveDependencies: refetch only when the panel opens on a new entity
   useEffect(() => {
     if (!open || !target) return;
@@ -54,10 +70,28 @@ export function DebugMenu() {
       setLoadingDates(false);
       setDates(res.ok ? res.dates : {});
     });
+    if (target.kind === "quote") {
+      getQuoteNumber(target.id).then((res) => {
+        if (!cancelled) setQuoteNumberInput(res.ok ? res.number : "");
+      });
+    }
     return () => {
       cancelled = true;
     };
   }, [open, target?.kind, target?.id]);
+
+  async function handleSaveNumber() {
+    if (!target || target.kind !== "quote" || savingNumber) return;
+    setSavingNumber(true);
+    const res = await setQuoteNumber(target.id, quoteNumberInput);
+    setSavingNumber(false);
+    if (!res.ok) {
+      toast.error("Couldn't update quote number", { description: res.error });
+      return;
+    }
+    toast.success("Quote number updated");
+    router.refresh();
+  }
 
   async function handleSaveDates() {
     if (!target || savingDates) return;
@@ -236,6 +270,35 @@ export function DebugMenu() {
                 </p>
               )}
             </section>
+
+            {target?.kind === "quote" ? (
+              <>
+                <Separator />
+                <section>
+                  <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <Hash className="size-3.5" /> Quote number
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={quoteNumberInput}
+                      onChange={(e) => setQuoteNumberInput(e.target.value)}
+                      placeholder="MPBI-12384"
+                      className="h-7 flex-1 text-xs"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={handleSaveNumber}
+                      disabled={savingNumber || quoteNumberInput.trim() === ""}
+                    >
+                      {savingNumber ? <Ring size="sm" className="text-current" /> : "Save"}
+                    </Button>
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                    Set this quote's number by hand — handy with random numbering.
+                  </p>
+                </section>
+              </>
+            ) : null}
 
             <Separator />
 

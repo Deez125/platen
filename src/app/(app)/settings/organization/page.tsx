@@ -19,6 +19,9 @@ type OrgRow = {
   default_min_quantity: string | null;
   quote_number_prefix: string | null;
   invoice_number_prefix: string | null;
+  document_number_mode: string | null;
+  next_quote_number: number | null;
+  next_invoice_number: number | null;
 };
 
 export default async function OrganizationSettingsPage() {
@@ -30,7 +33,7 @@ export default async function OrganizationSettingsPage() {
   const { data: org } = await supabase
     .from("organizations")
     .select(
-      "id, name, email, phone, address_line1, address_line2, city, state, postal_code, default_tax_rate, default_min_quantity, quote_number_prefix, invoice_number_prefix",
+      "id, name, email, phone, address_line1, address_line2, city, state, postal_code, default_tax_rate, default_min_quantity, quote_number_prefix, invoice_number_prefix, document_number_mode, next_quote_number, next_invoice_number",
     )
     .eq("id", ctx.orgId)
     .maybeSingle<OrgRow>();
@@ -60,6 +63,9 @@ export default async function OrganizationSettingsPage() {
     defaultMinQuantity: org.default_min_quantity != null ? Number(org.default_min_quantity) : null,
     quoteNumberPrefix: org.quote_number_prefix,
     invoiceNumberPrefix: org.invoice_number_prefix,
+    documentNumberMode: org.document_number_mode === "random" ? "random" : "sequential",
+    nextQuoteNumber: org.next_quote_number ?? 1,
+    nextInvoiceNumber: org.next_invoice_number ?? 1,
   };
 
   return <OrganizationForm org={formData} canEditShopInfo={isOwnerRole(ctx.role)} />;

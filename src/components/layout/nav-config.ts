@@ -28,6 +28,9 @@ export type NavItem = {
   icon: LucideIcon;
   badge?: string;
   children?: NavChild[];
+  /** Navigates + hovers, but never shows the active highlight — used for the
+   *  settings sub-pages so only "Settings" stays highlighted (never two). */
+  noActive?: boolean;
 };
 
 export type NavSection = {
@@ -63,18 +66,20 @@ export const navSections: NavSection[] = [
   {
     label: "Setup",
     items: [
-      { label: "Branding", href: "/settings/branding", icon: Palette },
+      { label: "Branding", href: "/settings/branding", icon: Palette, noActive: true },
       {
         label: "Templates",
         href: "/settings/document-templates",
         icon: FilePlus,
+        noActive: true,
       },
       {
         label: "Pricing rules",
         href: "/settings/pricing-rules",
         icon: Tag,
+        noActive: true,
       },
-      { label: "Integrations", href: "/settings/integrations", icon: Plug },
+      { label: "Integrations", href: "/settings/integrations", icon: Plug, noActive: true },
       { label: "Settings", href: "/settings", icon: Settings },
     ],
   },

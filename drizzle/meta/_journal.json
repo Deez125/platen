@@ -127,6 +127,13 @@
       "when": 1781341340549,
       "tag": "0017_wealthy_moira_mactaggert",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1783542927924,
+      "tag": "0018_cultured_rick_jones",
+      "breakpoints": true
     }
   ]
 }

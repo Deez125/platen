@@ -79,6 +79,8 @@ export const organizations = pgTable(
     nextInvoiceNumber: integer("next_invoice_number").default(1).notNull(),
     quoteNumberPadLength: integer("quote_number_pad_length").default(5).notNull(),
     invoiceNumberPadLength: integer("invoice_number_pad_length").default(5).notNull(),
+    /** "sequential" = incrementing counter; "random" = random padded number. */
+    documentNumberMode: text("document_number_mode").default("sequential").notNull(),
     /**
      * Default per-item markup added on top of each unit's wholesale cost when
      * computing tenant sell price. For v0.1 this is a flat $ amount; later

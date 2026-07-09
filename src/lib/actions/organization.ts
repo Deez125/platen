@@ -30,6 +30,11 @@ export type UpdateOrgInput = {
   defaultMinQuantity: number;
   quotePrefix: string;
   invoicePrefix: string;
+  /** "sequential" (incrementing counter) or "random" (random padded number). */
+  numberMode: "sequential" | "random";
+  /** Sequential only: the number the next quote/invoice should start from.
+   *  null = leave the counters untouched. */
+  startNumber: number | null;
 };
 
 export type UpdateOrgResult = { ok: true } | { ok: false; error: string };
@@ -47,12 +52,24 @@ export async function updateOrganization(input: UpdateOrgInput): Promise<UpdateO
   }
 
   // Defaults — editable by owner + admin.
+  const mode = input.numberMode === "random" ? "random" : "sequential";
   const update: Record<string, unknown> = {
     default_tax_rate: input.defaultTaxRate,
     default_min_quantity: input.defaultMinQuantity,
     quote_number_prefix: clean(input.quotePrefix) ?? "Q-",
     invoice_number_prefix: clean(input.invoicePrefix) ?? "INV-",
+    document_number_mode: mode,
   };
+
+  // Sequential + an explicit start number → reset both counters to it. (Random
+  // ignores the counters.) Skipped when startNumber is null / unchanged.
+  if (mode === "sequential" && input.startNumber != null) {
+    if (!Number.isInteger(input.startNumber) || input.startNumber < 1) {
+      return { ok: false, error: "Starting number must be a whole number of 1 or more." };
+    }
+    update.next_quote_number = input.startNumber;
+    update.next_invoice_number = input.startNumber;
+  }
 
   // Shop (business) info — owner only.
   if (ctx.role === "owner") {

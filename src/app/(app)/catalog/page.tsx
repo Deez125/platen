@@ -2,7 +2,7 @@ import { PackagePlus, ShoppingCart, Wand2 } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { ProductCard } from "@/components/catalog/product-card";
+import { type CatalogProduct, CatalogView } from "@/components/catalog/catalog-view";
 import { EmptyState } from "@/components/common/empty-state";
 import { PageHeader } from "@/components/common/page-header";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,12 @@ type ProductRow = {
   config: CustomProductConfig | null;
   product_categories: CategoryRef;
   tenant_product_pricing: PricingRow[];
+  // Distributor origin (via distributor_product_id → distributor_products → source).
+  distributor_products: {
+    brand: string | null;
+    style_number: string | null;
+    distributor_sources: { slug: string; name: string } | null;
+  } | null;
 };
 
 function startingPrice(pricing: PricingRow[]): number | null {
@@ -55,12 +61,32 @@ export default async function CatalogPage() {
   const { data } = await supabase
     .from("tenant_products")
     .select(
-      "id, name, image_url, is_active, source, config, product_categories(name), tenant_product_pricing(unit_price)",
+      "id, name, image_url, is_active, source, config, product_categories(name), tenant_product_pricing(unit_price), distributor_products(brand, style_number, distributor_sources(slug, name))",
     )
     .eq("tenant_id", orgId)
     .order("created_at", { ascending: false });
 
   const rows = (data ?? []) as unknown as ProductRow[];
+
+  const products: CatalogProduct[] = rows.map((p) => {
+    const isCustom = p.source === "custom";
+    const src = p.distributor_products?.distributor_sources ?? null;
+    return {
+      id: p.id,
+      name: p.name,
+      imageUrl: p.image_url,
+      isActive: p.is_active,
+      categoryName: p.product_categories?.name ?? null,
+      startingPrice: isCustom
+        ? customStartingPrice(p.config)
+        : startingPrice(p.tenant_product_pricing),
+      custom: isCustom,
+      brand: p.distributor_products?.brand ?? null,
+      styleNumber: p.distributor_products?.style_number ?? null,
+      distributorSlug: src?.slug ?? null,
+      sourceLabel: isCustom ? "Custom" : (src?.name ?? null),
+    };
+  });
 
   return (
     <>
@@ -97,25 +123,7 @@ export default async function CatalogPage() {
           }
         />
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {rows.map((p) => {
-            const isCustom = p.source === "custom";
-            return (
-              <ProductCard
-                key={p.id}
-                id={p.id}
-                name={p.name}
-                imageUrl={p.image_url}
-                isActive={p.is_active}
-                categoryName={p.product_categories?.name ?? null}
-                startingPrice={
-                  isCustom ? customStartingPrice(p.config) : startingPrice(p.tenant_product_pricing)
-                }
-                custom={isCustom}
-              />
-            );
-          })}
-        </div>
+        <CatalogView products={products} />
       )}
     </>
   );

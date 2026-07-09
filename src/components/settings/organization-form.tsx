@@ -26,6 +26,9 @@ export type OrgFormData = {
   defaultMinQuantity: number | null;
   quoteNumberPrefix: string | null;
   invoiceNumberPrefix: string | null;
+  documentNumberMode: "sequential" | "random";
+  nextQuoteNumber: number;
+  nextInvoiceNumber: number;
 };
 
 type FormState = {
@@ -43,7 +46,14 @@ type FormState = {
   invoicePrefix: string;
   /** When true, quotes and invoices share one prefix string. */
   samePrefix: boolean;
+  /** "sequential" = incrementing counter; "random" = random padded number. */
+  numberMode: "sequential" | "random";
+  /** Sequential only: the number the next document starts from. */
+  startNumber: string;
 };
+
+/** Zero-pad width for the number preview (matches the org default). */
+const NUMBER_PAD = 5;
 
 function toFormState(org: OrgFormData): FormState {
   const quotePrefix = org.quoteNumberPrefix ?? "Q-";
@@ -63,6 +73,11 @@ function toFormState(org: OrgFormData): FormState {
     invoicePrefix,
     // Pre-check the box if the two prefixes already match.
     samePrefix: quotePrefix === invoicePrefix,
+    numberMode: org.documentNumberMode,
+    startNumber: String(Math.max(org.nextQuoteNumber, org.nextInvoiceNumber)).padStart(
+      NUMBER_PAD,
+      "0",
+    ),
   };
 }
 
@@ -75,8 +90,20 @@ export function OrganizationForm({
 }) {
   const [form, setForm] = useState<FormState>(() => toFormState(org));
   const [saving, setSaving] = useState(false);
+  // The number the counters currently sit at — only push a new start if it changes.
+  const initialStart = Math.max(org.nextQuoteNumber, org.nextInvoiceNumber);
 
   const update = (patch: Partial<FormState>) => setForm((prev) => ({ ...prev, ...patch }));
+
+  // Re-pad the start number on blur so it reads like a real doc number (00232).
+  const padStartNumber = () =>
+    setForm((prev) => ({
+      ...prev,
+      startNumber:
+        prev.startNumber.trim() === ""
+          ? ""
+          : String(Number.parseInt(prev.startNumber, 10) || 0).padStart(NUMBER_PAD, "0"),
+    }));
 
   async function handleSave() {
     if (!form.name.trim()) {
@@ -103,6 +130,14 @@ export function OrganizationForm({
       quotePrefix: form.quotePrefix,
       // When "same prefix" is on, invoices use the exact same prefix string.
       invoicePrefix: form.samePrefix ? form.quotePrefix : form.invoicePrefix,
+      numberMode: form.numberMode,
+      // Only reset the counters when sequential AND the start actually changed.
+      startNumber:
+        form.numberMode === "sequential" &&
+        form.startNumber.trim() !== "" &&
+        Number.parseInt(form.startNumber, 10) !== initialStart
+          ? Number.parseInt(form.startNumber, 10)
+          : null,
     });
     setSaving(false);
 
@@ -112,6 +147,12 @@ export function OrganizationForm({
     }
     toast.success("Saved");
   }
+
+  const startInt = Number.parseInt(form.startNumber, 10);
+  const startBase = Number.isFinite(startInt) && startInt > 0 ? startInt : 1;
+  const seqExample = [0, 1, 2]
+    .map((i) => `${form.quotePrefix}${String(startBase + i).padStart(NUMBER_PAD, "0")}`)
+    .join(", ");
 
   return (
     <div className="space-y-6">
@@ -306,6 +347,47 @@ export function OrganizationForm({
             </span>
             Use the same prefix for quotes and invoices
           </label>
+
+          <div className="space-y-2 border-t border-border pt-4">
+            <Label>Numbering</Label>
+            <div className="flex gap-2">
+              {(["sequential", "random"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => update({ numberMode: m })}
+                  className={cn(
+                    "rounded-md border px-3 py-1.5 text-sm transition-colors",
+                    form.numberMode === m
+                      ? "border-foreground bg-foreground text-background"
+                      : "cursor-pointer border-border text-foreground hover:bg-muted",
+                  )}
+                >
+                  {m === "sequential" ? "Sequential" : "Random"}
+                </button>
+              ))}
+            </div>
+            <div className="space-y-1.5 pt-1">
+              <Label htmlFor="start-number">Start numbering at</Label>
+              <Input
+                id="start-number"
+                inputMode="numeric"
+                value={form.startNumber}
+                onChange={(e) => update({ startNumber: e.target.value.replace(/[^\d]/g, "") })}
+                onBlur={padStartNumber}
+                disabled={form.numberMode === "random"}
+                className="w-40"
+              />
+              {form.numberMode === "sequential" ? (
+                <p className="text-xs text-muted-foreground">Counts up: {seqExample}…</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Random mode ignores this — each doc gets a random {NUMBER_PAD}-digit number, e.g.{" "}
+                  {form.quotePrefix}12384, {form.quotePrefix}88471.
+                </p>
+              )}
+            </div>
+          </div>
         </CardContent>
       </Card>
 

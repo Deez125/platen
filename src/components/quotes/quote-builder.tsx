@@ -49,6 +49,7 @@ import {
   type VariantMatrix,
   lineToCalc,
   nextKey,
+  productBaseName,
 } from "@/lib/quotes/types";
 
 export type MetaSlice = {
@@ -153,7 +154,7 @@ function newProductLine(product: RefProduct): BuilderLine {
     key: nextKey("line"),
     itemType: "product",
     tenantProductId: product.id,
-    name: product.name,
+    name: productBaseName(product),
     description: "",
     colorName: "",
     notes: "",

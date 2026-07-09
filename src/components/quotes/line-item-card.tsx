@@ -37,6 +37,7 @@ import {
   colorTierPrice,
   lineToCalc,
   nextKey,
+  productBaseName,
 } from "@/lib/quotes/types";
 import { cn } from "@/lib/utils";
 
@@ -93,16 +94,26 @@ export function LineItemCard({
   const selections: CustomSelections =
     line.customSelections ?? (config ? defaultSelections(config) : { options: {}, colorCount: "" });
 
+  // "Use category instead" toggles the line name between its default
+  // (brand + style #, e.g. "Independent Trading Co. SS4500") and the category
+  // (e.g. "Hoodie"). Only meaningful for products that have a category.
+  const categoryName = product?.categoryName ?? null;
+  const baseName = product ? productBaseName(product) : line.name;
+  const usingCategory = categoryName !== null && line.name === categoryName;
+
   function update(patch: Partial<BuilderLine>) {
     onChange({ ...line, ...patch });
   }
 
-  /** Recompute a custom product's unit price from its config + selections. */
+  /** Recompute a custom product's unit price from its config + selections —
+   *  unless the price was manually edited, which we leave alone. */
   function applyCustom(sel: CustomSelections, qtyStr: string) {
     if (!config) return;
     const qty = Math.trunc(Number(qtyStr) || 0);
-    const unit = customUnitBase(config, qty, sel);
-    onChange({ ...line, quantity: qtyStr, unitPrice: unit.toFixed(2), customSelections: sel });
+    const unitPrice = line.unitPriceOverridden
+      ? line.unitPrice
+      : customUnitBase(config, qty, sel).toFixed(2);
+    onChange({ ...line, quantity: qtyStr, unitPrice, customSelections: sel });
   }
   function setCustomOption(group: string, label: string) {
     applyCustom(
@@ -208,6 +219,19 @@ export function LineItemCard({
               placeholder="Item name"
               className="mt-1 h-8 px-2 text-sm font-medium"
             />
+            {isProduct && categoryName ? (
+              <label className="mt-1.5 flex w-fit cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={usingCategory}
+                  onChange={(e) =>
+                    update({ name: e.target.checked ? (categoryName ?? "") : baseName })
+                  }
+                  className="size-3.5 cursor-pointer"
+                />
+                Use category instead
+              </label>
+            ) : null}
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -402,10 +426,14 @@ export function LineItemCard({
                 />
               </div>
               <div className="space-y-2">
-                <Label>Unit price</Label>
-                <div className="flex h-9 items-center rounded-md border border-input bg-muted/30 px-3 text-sm tabular-nums">
-                  {formatCurrency(Number(line.unitPrice))}
-                </div>
+                <Label htmlFor={`cpprice-${line.key}`}>Unit price</Label>
+                <MoneyInput
+                  id={`cpprice-${line.key}`}
+                  value={line.unitPrice}
+                  onChange={(e) =>
+                    onChange({ ...line, unitPrice: e.target.value, unitPriceOverridden: true })
+                  }
+                />
               </div>
             </div>
 

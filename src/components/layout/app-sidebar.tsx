@@ -71,7 +71,7 @@ export function AppSidebar({
               <SidebarMenu className="gap-0.5">
                 {section.items.map((item) => {
                   const Icon = item.icon;
-                  const active = isActive(pathname, item.href);
+                  const active = item.noActive ? false : isActive(pathname, item.href);
 
                   return (
                     <SidebarMenuItem key={item.href}>

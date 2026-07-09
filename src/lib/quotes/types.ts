@@ -21,7 +21,17 @@ export type RefProduct = {
   source: string;
   /** Pricing blocks + methods for custom products; null for distributor ones. */
   config: CustomProductConfig | null;
+  /** Manufacturer brand + style/model number (distributor products; null for custom). */
+  brand: string | null;
+  styleNumber: string | null;
 };
+
+/** Default line-item name for a product: "Brand StyleNumber", else its own name. */
+export function productBaseName(product: RefProduct): string {
+  const model = [product.brand, product.styleNumber].filter(Boolean).join(" ");
+  return model || product.name;
+}
+
 export type RefCustomer = {
   id: string;
   name: string;
@@ -123,6 +133,9 @@ export type BuilderLine = {
   placements: BuilderPlacement[];
   /** Quote-time choices for a custom product (session-only for now). */
   customSelections?: CustomSelections;
+  /** Custom product: true once the unit price is manually edited, so option /
+   *  quantity changes stop overwriting it with the computed default. */
+  unitPriceOverridden?: boolean;
 };
 
 let keySeq = 0;

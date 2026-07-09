@@ -48,6 +48,7 @@ type ProductRow = {
   source: string;
   config: CustomProductConfig | null;
   product_categories: { name: string } | null;
+  distributor_products: { brand: string | null; style_number: string | null } | null;
   tenant_product_pricing: {
     min_quantity: number;
     max_quantity: number | null;
@@ -94,7 +95,7 @@ export async function getQuoteRefData(): Promise<QuoteRefData | null> {
     supabase
       .from("tenant_products")
       .select(
-        "id, name, image_url, category_id, min_quantity, source, config, product_categories(name), tenant_product_pricing(min_quantity, max_quantity, unit_price, cost)",
+        "id, name, image_url, category_id, min_quantity, source, config, product_categories(name), distributor_products(brand, style_number), tenant_product_pricing(min_quantity, max_quantity, unit_price, cost)",
       )
       .eq("tenant_id", orgId)
       .eq("is_active", true)
@@ -187,6 +188,8 @@ export async function getQuoteRefData(): Promise<QuoteRefData | null> {
       minQuantity: p.min_quantity,
       source: p.source,
       config: p.config,
+      brand: p.distributor_products?.brand ?? null,
+      styleNumber: p.distributor_products?.style_number ?? null,
       pricing: (p.tenant_product_pricing ?? []).map((t) => ({
         minQuantity: t.min_quantity,
         maxQuantity: t.max_quantity,
