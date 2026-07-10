@@ -3,6 +3,7 @@ import Link from "next/link";
 import { CustomerAvatar } from "@/components/common/customer-avatar";
 import { JobStatusBadge } from "@/components/jobs/job-status";
 import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 type Props = {
   id: string;
@@ -13,6 +14,8 @@ type Props = {
   due: string;
   unitsReady: number;
   unitsTotal: number;
+  /** Order is fully done (delivered + paid) — dims the card. */
+  completed?: boolean;
 };
 
 export function JobCard({
@@ -24,10 +27,16 @@ export function JobCard({
   due,
   unitsReady,
   unitsTotal,
+  completed = false,
 }: Props) {
   return (
     <Link href={`/jobs/${id}`} className="group block">
-      <Card className="relative h-full overflow-hidden border-transparent bg-sidebar p-4 transition-colors hover:bg-sidebar-accent/50">
+      <Card
+        className={cn(
+          "relative h-full overflow-hidden border-transparent bg-sidebar p-4 transition-colors hover:bg-sidebar-accent/50",
+          completed && "opacity-60",
+        )}
+      >
         <div className="absolute top-3 right-3">
           <JobStatusBadge status={status} />
         </div>

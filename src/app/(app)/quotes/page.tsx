@@ -9,6 +9,7 @@ import { ListViewToggle } from "@/components/common/list-view-toggle";
 import { PageHeader } from "@/components/common/page-header";
 import { QuoteCard } from "@/components/quotes/quote-card";
 import { QuoteStatusBadge } from "@/components/quotes/quote-status-badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -21,6 +22,7 @@ import {
 import { getActiveOrgId } from "@/lib/auth/session";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
+import { cn } from "@/lib/utils";
 
 type QuoteRow = {
   id: string;
@@ -33,7 +35,32 @@ type QuoteRow = {
   customer_company: string | null;
   // Live customer (via customer_id FK) — for the logo, which quotes don't snapshot.
   customers: { logo_url: string | null } | null;
+  // Reverse embeds: this quote's invoice(s) and their job(s), to detect delivery.
+  // Supabase returns a to-one embed as an object and a to-many as an array, so
+  // both shapes are possible depending on the join's uniqueness.
+  invoices: JobEmbed | JobEmbed[] | null;
 };
+
+type JobEmbed = {
+  amount_due: string | number | null;
+  jobs: { status: string } | { status: string }[] | null;
+};
+
+/** Normalize a Supabase embed (object for to-one, array for to-many) to an array. */
+function asArray<T>(value: T | T[] | null | undefined): T[] {
+  if (value == null) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+/** An order is "completed" once its downstream job is delivered AND its invoice
+ *  is paid in full — a delivered-but-unpaid order still needs attention. */
+function isCompleted(q: QuoteRow): boolean {
+  return asArray(q.invoices).some((inv) => {
+    const due = inv.amount_due == null ? Number.POSITIVE_INFINITY : Number(inv.amount_due);
+    const delivered = asArray(inv.jobs).some((j) => j.status === "delivered");
+    return delivered && due <= 0;
+  });
+}
 
 const FILTERS = [
   { value: "all", label: "All" },
@@ -59,7 +86,7 @@ export default async function QuotesPage({
   let query = supabase
     .from("quotes")
     .select(
-      "id, quote_number, version, status, quote_date, total, customer_name, customer_company, customers(logo_url)",
+      "id, quote_number, version, status, quote_date, total, customer_name, customer_company, customers(logo_url), invoices(amount_due, jobs(status))",
     )
     .eq("tenant_id", orgId)
     .order("created_at", { ascending: false });
@@ -67,7 +94,13 @@ export default async function QuotesPage({
 
   const { data } = await query;
   // Supabase infers the to-one customers join as an array; it's an object at runtime.
-  const rows = (data ?? []) as unknown as QuoteRow[];
+  const fetched = (data ?? []) as unknown as QuoteRow[];
+  // Completed (delivered + paid) orders sink below active ones; within each
+  // group the date order from the query is preserved.
+  const rows = [
+    ...fetched.filter((q) => !isCompleted(q)),
+    ...fetched.filter((q) => isCompleted(q)),
+  ];
 
   return (
     <>
@@ -120,6 +153,7 @@ export default async function QuotesPage({
               logoUrl={q.customers?.logo_url ?? null}
               total={q.total}
               date={formatDate(q.quote_date)}
+              completed={isCompleted(q)}
             />
           ))}
         </div>
@@ -137,8 +171,9 @@ export default async function QuotesPage({
           <TableBody>
             {rows.map((q) => {
               const customer = q.customer_company || q.customer_name || "—";
+              const completed = isCompleted(q);
               return (
-                <TableRow key={q.id} className="cursor-pointer">
+                <TableRow key={q.id} className={cn("cursor-pointer", completed && "opacity-60")}>
                   <TableCell className="font-medium">
                     <Link href={`/quotes/${q.id}`} className="block">
                       {q.quote_number}
@@ -154,7 +189,13 @@ export default async function QuotesPage({
                   </TableCell>
                   <TableCell>
                     <Link href={`/quotes/${q.id}`} className="block">
-                      <QuoteStatusBadge status={q.status} />
+                      {completed ? (
+                        <Badge variant="success" className="text-[10px]">
+                          Completed
+                        </Badge>
+                      ) : (
+                        <QuoteStatusBadge status={q.status} />
+                      )}
                     </Link>
                   </TableCell>
                   <TableCell className="text-muted-foreground">

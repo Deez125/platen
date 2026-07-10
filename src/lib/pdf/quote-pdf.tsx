@@ -19,6 +19,10 @@ export type PdfLineRow = {
 };
 
 export type PdfQuote = {
+  /** Big heading + how the doc refers to itself. Defaults to "QUOTE". */
+  docType?: "QUOTE" | "INVOICE";
+  /** Invoice-only payment summary, shown under the payment method/terms. */
+  payment?: { amountPaid: number; balanceDue: number } | null;
   number: string;
   date: string;
   expiresAt: string | null;
@@ -180,9 +184,9 @@ export function QuotePdfDocument({ quote }: { quote: PdfQuote }) {
           <Text style={styles.quoteRef}>#{quote.number}</Text>
         </View>
 
-        {/* QUOTE heading + date */}
+        {/* QUOTE / INVOICE heading + date */}
         <View style={styles.titleBlock}>
-          <Text style={styles.title}>QUOTE</Text>
+          <Text style={styles.title}>{quote.docType ?? "QUOTE"}</Text>
           <View style={styles.dateLineWrap}>
             <Text style={styles.dateLine}>
               <Text style={styles.dateLabel}>Date: </Text>
@@ -313,8 +317,9 @@ export function QuotePdfDocument({ quote }: { quote: PdfQuote }) {
           </View>
         </View>
 
-        {/* Footer blocks */}
-        {quote.paymentMethod || quote.paymentTerms ? (
+        {/* Footer blocks — payment method/terms, then (invoices only) the
+            paid / balance-due summary directly beneath. */}
+        {quote.paymentMethod || quote.paymentTerms || quote.payment ? (
           <View style={styles.footerBlock}>
             {quote.paymentMethod ? (
               <Text style={styles.footerText}>
@@ -327,6 +332,18 @@ export function QuotePdfDocument({ quote }: { quote: PdfQuote }) {
                 <Text style={styles.footerLabel}>Payment terms: </Text>
                 {quote.paymentTerms}
               </Text>
+            ) : null}
+            {quote.payment ? (
+              <>
+                <Text style={[styles.footerText, { marginTop: 2 }]}>
+                  <Text style={styles.footerLabel}>Amount paid: </Text>
+                  {fmt(quote.payment.amountPaid)}
+                </Text>
+                <Text style={[styles.footerText, { marginTop: 2 }]}>
+                  <Text style={styles.footerLabel}>Balance due: </Text>
+                  {fmt(quote.payment.balanceDue)}
+                </Text>
+              </>
             ) : null}
           </View>
         ) : null}

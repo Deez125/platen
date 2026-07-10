@@ -133,3 +133,147 @@ export async function setQuoteNumber(quoteId: string, quoteNumber: string): Prom
   revalidatePath("/quotes");
   return { ok: true };
 }
+
+export type MigratableQuote = {
+  id: string;
+  quoteNumber: string;
+  customer: string;
+  logoUrl: string | null;
+  quoteDate: string | null;
+};
+type MigratableResult = { ok: true; quotes: MigratableQuote[] } | { ok: false; error: string };
+
+/** Debug-only: approved quotes that haven't been turned into an invoice yet. */
+export async function getMigratableQuotes(): Promise<MigratableResult> {
+  const ctx = await getActiveContext();
+  if (!ctx) return { ok: false, error: "No active organization" };
+
+  const supabase = await createClient();
+  const [{ data: quotes, error }, { data: invoiced }] = await Promise.all([
+    supabase
+      .from("quotes")
+      .select("id, quote_number, quote_date, customer_name, customer_company, customers(logo_url)")
+      .eq("tenant_id", ctx.orgId)
+      .eq("status", "approved")
+      .order("created_at", { ascending: false }),
+    supabase.from("invoices").select("quote_id").eq("tenant_id", ctx.orgId),
+  ]);
+  if (error) return { ok: false, error: error.message };
+
+  const taken = new Set(
+    ((invoiced as { quote_id: string | null }[] | null) ?? [])
+      .map((r) => r.quote_id)
+      .filter((v): v is string => v !== null),
+  );
+  const rows = (quotes ?? []) as unknown as {
+    id: string;
+    quote_number: string;
+    quote_date: string | null;
+    customer_name: string | null;
+    customer_company: string | null;
+    customers: { logo_url: string | null } | null;
+  }[];
+  const list: MigratableQuote[] = rows
+    .filter((q) => !taken.has(q.id))
+    .map((q) => ({
+      id: q.id,
+      quoteNumber: q.quote_number,
+      customer: q.customer_company || q.customer_name || "—",
+      logoUrl: q.customers?.logo_url ?? null,
+      quoteDate: q.quote_date,
+    }));
+  return { ok: true, quotes: list };
+}
+
+/**
+ * Debug-only: fast-forward one approved quote to a delivered, paid order — the
+ * whole invoice → payment → job → delivered flow, backdated to the quote's
+ * dates. Atomic inside migrate_quote_to_delivered. Owner/admin only.
+ */
+export async function migrateQuote(quoteId: string): Promise<Result> {
+  const ctx = await getActiveContext();
+  if (!ctx) return { ok: false, error: "No active organization" };
+  if (!MANAGE_ROLES.has(ctx.role)) {
+    return { ok: false, error: "Only an owner or admin can migrate quotes." };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("migrate_quote_to_delivered", { p_quote_id: quoteId });
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/quotes");
+  revalidatePath("/invoices");
+  revalidatePath("/jobs");
+  return { ok: true };
+}
+
+export type JobActivityItem = {
+  id: string;
+  type: string;
+  message: string;
+  date: string; // YYYY-MM-DD
+  actor: string | null;
+};
+type JobActivityResult = { ok: true; events: JobActivityItem[] } | { ok: false; error: string };
+
+/** Debug-only: read a job's activity log (job_events) with dates. Tenant-scoped. */
+export async function getJobActivity(jobId: string): Promise<JobActivityResult> {
+  const ctx = await getActiveContext();
+  if (!ctx) return { ok: false, error: "No active organization" };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("job_events")
+    .select("id, type, message, created_at, profiles(first_name, last_name)")
+    .eq("job_id", jobId)
+    .eq("tenant_id", ctx.orgId)
+    .order("created_at", { ascending: false });
+  if (error) return { ok: false, error: error.message };
+
+  const rows = (data ?? []) as unknown as {
+    id: string;
+    type: string;
+    message: string;
+    created_at: string | null;
+    profiles: { first_name: string | null; last_name: string | null } | null;
+  }[];
+  const events: JobActivityItem[] = rows.map((r) => ({
+    id: r.id,
+    type: r.type,
+    message: r.message,
+    date: toDateInput(r.created_at),
+    actor: `${r.profiles?.first_name ?? ""} ${r.profiles?.last_name ?? ""}`.trim() || null,
+  }));
+  return { ok: true, events };
+}
+
+/**
+ * Debug-only: backdate a job's activity events. Each event's created_at is set
+ * to the given date. Owner/admin + tenant-scoped; only events on this job are
+ * touched.
+ */
+export async function setJobActivityDates(
+  jobId: string,
+  updates: { id: string; date: string }[],
+): Promise<Result> {
+  const ctx = await getActiveContext();
+  if (!ctx) return { ok: false, error: "No active organization" };
+  if (!MANAGE_ROLES.has(ctx.role)) {
+    return { ok: false, error: "Only an owner or admin can edit activity dates." };
+  }
+
+  const supabase = await createClient();
+  for (const u of updates) {
+    const date = u.date.trim();
+    if (!ISO_DATE.test(date)) return { ok: false, error: "Each date must be a valid date." };
+    const { error } = await supabase
+      .from("job_events")
+      .update({ created_at: date })
+      .eq("id", u.id)
+      .eq("job_id", jobId)
+      .eq("tenant_id", ctx.orgId);
+    if (error) return { ok: false, error: error.message };
+  }
+
+  revalidatePath(`/jobs/${jobId}`);
+  return { ok: true };
+}

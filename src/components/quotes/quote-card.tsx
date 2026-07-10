@@ -2,8 +2,10 @@ import Link from "next/link";
 
 import { CustomerAvatar } from "@/components/common/customer-avatar";
 import { QuoteStatusBadge } from "@/components/quotes/quote-status-badge";
+import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 type Props = {
   id: string;
@@ -14,6 +16,8 @@ type Props = {
   logoUrl: string | null;
   total: string | number | null;
   date: string;
+  /** Order is fully done (its job was delivered) — dims + shows "Completed". */
+  completed?: boolean;
 };
 
 export function QuoteCard({
@@ -25,12 +29,24 @@ export function QuoteCard({
   logoUrl,
   total,
   date,
+  completed = false,
 }: Props) {
   return (
     <Link href={`/quotes/${id}`} className="group block">
-      <Card className="relative h-full overflow-hidden border-transparent bg-sidebar p-4 transition-colors hover:bg-sidebar-accent/50">
+      <Card
+        className={cn(
+          "relative h-full overflow-hidden border-transparent bg-sidebar p-4 transition-colors hover:bg-sidebar-accent/50",
+          completed && "opacity-60",
+        )}
+      >
         <div className="absolute top-3 right-3">
-          <QuoteStatusBadge status={status} />
+          {completed ? (
+            <Badge variant="success" className="text-[10px]">
+              Completed
+            </Badge>
+          ) : (
+            <QuoteStatusBadge status={status} />
+          )}
         </div>
 
         <div className="flex items-center gap-3 pr-20">

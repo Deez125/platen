@@ -23,9 +23,10 @@ import {
   SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
+import { cn } from "@/lib/utils";
 
 function isActive(currentPath: string, href: string) {
-  const target = href.split("?")[0]!;
+  const target = href.split("?")[0] ?? href;
   if (target === currentPath) return true;
   if (currentPath.startsWith(`${target}/`)) return true;
   return false;
@@ -85,26 +86,47 @@ export function AppSidebar({
                           <Icon />
                           <span>{item.label}</span>
                           {item.children ? (
-                            <ChevronRight className="ml-auto size-3.5 opacity-60" />
+                            <ChevronRight
+                              className={cn(
+                                "ml-auto size-3.5 opacity-60 transition-transform duration-200 ease-out",
+                                active && "rotate-90",
+                              )}
+                            />
                           ) : null}
                         </Link>
                       </SidebarMenuButton>
-                      {item.children && active ? (
-                        <SidebarMenuSub>
-                          {item.children.map((child) => (
-                            <SidebarMenuSubItem key={child.href}>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={
-                                  `${pathname}${currentQuery ? `?${currentQuery}` : ""}` ===
-                                  child.href
-                                }
-                              >
-                                <Link href={child.href}>{child.label}</Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ))}
-                        </SidebarMenuSub>
+                      {/* Sub-items stay mounted and animate open/closed via a
+                          grid-rows transition so they don't just pop in. */}
+                      {item.children ? (
+                        <div
+                          className={cn(
+                            "grid transition-[grid-template-rows] duration-200 ease-out",
+                            active ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              "overflow-hidden transition-opacity duration-200 ease-out",
+                              active ? "opacity-100" : "pointer-events-none opacity-0",
+                            )}
+                          >
+                            <SidebarMenuSub>
+                              {item.children.map((child) => (
+                                <SidebarMenuSubItem key={child.href}>
+                                  <SidebarMenuSubButton
+                                    asChild
+                                    isActive={
+                                      `${pathname}${currentQuery ? `?${currentQuery}` : ""}` ===
+                                      child.href
+                                    }
+                                  >
+                                    <Link href={child.href}>{child.label}</Link>
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                              ))}
+                            </SidebarMenuSub>
+                          </div>
+                        </div>
                       ) : null}
                     </SidebarMenuItem>
                   );

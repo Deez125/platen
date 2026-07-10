@@ -9,6 +9,7 @@ import { ListViewToggle } from "@/components/common/list-view-toggle";
 import { PageHeader } from "@/components/common/page-header";
 import { InvoiceCard } from "@/components/invoices/invoice-card";
 import { InvoiceStatusBadge } from "@/components/invoices/invoice-status-badge";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -21,6 +22,7 @@ import { getActiveOrgId } from "@/lib/auth/session";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { type PaymentInstallment, scheduleWithDates } from "@/lib/payments/payment-terms";
 import { createClient } from "@/lib/supabase/server";
+import { cn } from "@/lib/utils";
 
 type InvoiceRow = {
   id: string;
@@ -34,7 +36,20 @@ type InvoiceRow = {
   amount_paid: string;
   payment_schedule: PaymentInstallment[] | null;
   customers: { logo_url: string | null } | null;
+  // Reverse embed: this invoice's job(s), to detect delivery. Supabase returns a
+  // to-one embed as an object and a to-many as an array, so allow both shapes.
+  jobs: { status: string } | { status: string }[] | null;
 };
+
+/** An order is "completed" once its downstream job is delivered AND the invoice
+ *  is paid in full — a delivered-but-unpaid order still needs attention. */
+function isCompleted(inv: InvoiceRow): boolean {
+  const jobs = inv.jobs == null ? [] : Array.isArray(inv.jobs) ? inv.jobs : [inv.jobs];
+  const delivered = jobs.some((j) => j.status === "delivered");
+  const due =
+    inv.amount_due != null ? Number(inv.amount_due) : Number(inv.total) - Number(inv.amount_paid);
+  return delivered && due <= 0;
+}
 
 const FILTERS = [
   { value: "all", label: "All" },
@@ -60,7 +75,7 @@ export default async function InvoicesPage({
   let query = supabase
     .from("invoices")
     .select(
-      "id, invoice_number, status, issue_date, customer_name, customer_company, total, amount_due, amount_paid, payment_schedule, customers(logo_url)",
+      "id, invoice_number, status, issue_date, customer_name, customer_company, total, amount_due, amount_paid, payment_schedule, customers(logo_url), jobs(status)",
     )
     .eq("tenant_id", orgId)
     .order("created_at", { ascending: false });
@@ -89,6 +104,9 @@ export default async function InvoicesPage({
 
   let rows = (data ?? []) as unknown as InvoiceRow[];
   if (active === "overdue") rows = rows.filter((inv) => effectiveStatus(inv) === "overdue");
+  // Completed (delivered + paid) orders sink below active ones; date order within
+  // each group is preserved.
+  rows = [...rows.filter((inv) => !isCompleted(inv)), ...rows.filter((inv) => isCompleted(inv))];
 
   return (
     <>
@@ -126,6 +144,7 @@ export default async function InvoicesPage({
               logoUrl={inv.customers?.logo_url ?? null}
               total={inv.total}
               date={formatDate(inv.issue_date)}
+              completed={isCompleted(inv)}
             />
           ))}
         </div>
@@ -144,8 +163,9 @@ export default async function InvoicesPage({
           <TableBody>
             {rows.map((inv) => {
               const customer = inv.customer_company || inv.customer_name || "—";
+              const completed = isCompleted(inv);
               return (
-                <TableRow key={inv.id} className="cursor-pointer">
+                <TableRow key={inv.id} className={cn("cursor-pointer", completed && "opacity-60")}>
                   <TableCell className="font-medium">
                     <Link href={`/invoices/${inv.id}`} className="block">
                       {inv.invoice_number}
@@ -158,7 +178,13 @@ export default async function InvoicesPage({
                   </TableCell>
                   <TableCell>
                     <Link href={`/invoices/${inv.id}`} className="block">
-                      <InvoiceStatusBadge status={effectiveStatus(inv)} />
+                      {completed ? (
+                        <Badge variant="success" className="text-[10px]">
+                          Completed
+                        </Badge>
+                      ) : (
+                        <InvoiceStatusBadge status={effectiveStatus(inv)} />
+                      )}
                     </Link>
                   </TableCell>
                   <TableCell className="text-muted-foreground">

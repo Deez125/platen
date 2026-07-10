@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 
 import { ACTIVE_ORG_COOKIE, activeOrgCookieOptions } from "@/lib/auth/session";
+import { notifyOrg } from "@/lib/notifications/notify";
 import { createClient } from "@/lib/supabase/server";
 
 /** Pin the just-created/joined org as the caller's active tenant. */
@@ -79,7 +80,27 @@ export async function joinWithKey(key: string): Promise<JoinWithKeyResult> {
     return { ok: false, error: msg };
   }
 
-  await pinActiveOrg(data as string);
+  const orgId = data as string;
+
+  // Announce the new teammate to the shop (the joiner is now a member, so
+  // notify_org's membership check passes).
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("first_name, last_name")
+    .eq("id", user?.id ?? "")
+    .maybeSingle<{ first_name: string | null; last_name: string | null }>();
+  const name = `${profile?.first_name ?? ""} ${profile?.last_name ?? ""}`.trim();
+  await notifyOrg(supabase, {
+    tenantId: orgId,
+    type: "member_joined",
+    title: "New teammate joined",
+    body: name ? `${name} joined your shop with the join key.` : "A new member joined your shop.",
+  });
+
+  await pinActiveOrg(orgId);
   revalidatePath("/", "layout");
-  return { ok: true, orgId: data as string };
+  return { ok: true, orgId };
 }

@@ -172,9 +172,11 @@ function sizeRows(
   return rows;
 }
 
-export function pdfQuoteFromDb(quote: DbQuote, items: DbLineItem[], org: PdfOrg): PdfQuote {
+/** Shared line-item → display-row expansion for saved quotes AND invoices
+ *  (their line items are the same snapshot shape). */
+function dbLineItemsToRows(items: DbLineItem[]): PdfLineRow[] {
   const sorted = [...items].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-  const rows: PdfLineRow[] = sorted.flatMap((li) => {
+  return sorted.flatMap((li) => {
     const cells = (li.sizes_breakdown ?? []).map((s) => ({
       size: s.size,
       qty: s.qty || 0,
@@ -197,6 +199,10 @@ export function pdfQuoteFromDb(quote: DbQuote, items: DbLineItem[], org: PdfOrg)
       },
     ];
   });
+}
+
+export function pdfQuoteFromDb(quote: DbQuote, items: DbLineItem[], org: PdfOrg): PdfQuote {
+  const rows = dbLineItemsToRows(items);
 
   return {
     number: quote.quote_number,
@@ -231,6 +237,87 @@ export function pdfQuoteFromDb(quote: DbQuote, items: DbLineItem[], org: PdfOrg)
     paymentTerms: quote.payment_terms,
     terms: quote.terms,
     notes: quote.notes,
+  };
+}
+
+// ── From a saved DB invoice row ─────────────────────────────────────────
+
+type DbInvoice = {
+  invoice_number: string;
+  status: string;
+  issue_date: string;
+  customer_name: string | null;
+  customer_company: string | null;
+  customer_email: string | null;
+  customer_phone: string | null;
+  customer_address_line1: string | null;
+  customer_address_line2: string | null;
+  customer_city: string | null;
+  customer_state: string | null;
+  customer_postal_code: string | null;
+  customer_country: string | null;
+  subtotal: string | number;
+  discount_amount: string | number;
+  tax_rate: string | number | null;
+  tax_amount: string | number;
+  is_tax_exempt: boolean;
+  shipping_amount: string | number;
+  total: string | number;
+  deposit_amount: string | number;
+  amount_paid: string | number;
+  amount_due: string | number | null;
+  payment_method_default: string | null;
+  payment_terms: string | null;
+  terms: string | null;
+  notes: string | null;
+};
+
+/**
+ * Build the PDF model from a saved invoice — identical to the quote PDF (same
+ * template) except the heading reads "INVOICE" and a paid / balance-due summary
+ * is shown under the payment section.
+ */
+export function pdfInvoiceFromDb(invoice: DbInvoice, items: DbLineItem[], org: PdfOrg): PdfQuote {
+  const rows = dbLineItemsToRows(items);
+  const total = num(invoice.total);
+  const amountPaid = num(invoice.amount_paid);
+  const balanceDue = invoice.amount_due != null ? num(invoice.amount_due) : total - amountPaid;
+
+  return {
+    docType: "INVOICE",
+    payment: { amountPaid, balanceDue },
+    number: invoice.invoice_number,
+    date: formatDate(invoice.issue_date) ?? "",
+    expiresAt: null,
+    status: invoice.status,
+    customer: {
+      name: invoice.customer_name,
+      company: invoice.customer_company,
+      email: invoice.customer_email,
+      phone: invoice.customer_phone,
+      address: buildAddress(
+        invoice.customer_address_line1,
+        invoice.customer_address_line2,
+        invoice.customer_city,
+        invoice.customer_state,
+        invoice.customer_postal_code,
+        invoice.customer_country,
+      ),
+    },
+    from: orgToFrom(org),
+    items: rows,
+    subtotal: num(invoice.subtotal),
+    discountAmount: num(invoice.discount_amount),
+    taxRate: num(invoice.tax_rate),
+    taxAmount: num(invoice.tax_amount),
+    isTaxExempt: invoice.is_tax_exempt,
+    shippingAmount: num(invoice.shipping_amount),
+    total,
+    depositAmount: num(invoice.deposit_amount),
+    paymentMethod: invoice.payment_method_default,
+    paymentTerms: invoice.payment_terms,
+    terms: invoice.terms,
+    notes: invoice.notes,
   };
 }
 

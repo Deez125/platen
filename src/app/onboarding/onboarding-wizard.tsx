@@ -206,8 +206,8 @@ export function OnboardingWizard({ isReturning }: { isReturning: boolean }) {
 
         <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
           <div className="mb-6 space-y-1">
-            <h2 className="text-lg font-semibold tracking-tight">{steps[step - 1]!.title}</h2>
-            <p className="text-sm text-muted-foreground">{steps[step - 1]!.description}</p>
+            <h2 className="text-lg font-semibold tracking-tight">{steps[step - 1]?.title}</h2>
+            <p className="text-sm text-muted-foreground">{steps[step - 1]?.description}</p>
           </div>
 
           {step === 1 ? <ShopInfoStep form={form} update={update} /> : null}

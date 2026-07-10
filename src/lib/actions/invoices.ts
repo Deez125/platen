@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { getActiveContext } from "@/lib/auth/session";
+import { formatCurrency } from "@/lib/format";
+import { notifyOrg } from "@/lib/notifications/notify";
 import { createClient } from "@/lib/supabase/server";
 
 type Result = { ok: true } | { ok: false; error: string };
@@ -83,6 +85,34 @@ export async function recordPayment(input: RecordPaymentInput): Promise<Result> 
     recorded_by: ctx.userId,
   });
   if (error) return { ok: false, error: error.message };
+
+  // The insert trigger has recomputed status — re-read it so the notification
+  // reflects whether this payment settled the invoice in full.
+  const { data: inv } = await supabase
+    .from("invoices")
+    .select("invoice_number, status, customer_company, customer_name")
+    .eq("id", data.invoiceId)
+    .maybeSingle<{
+      invoice_number: string;
+      status: string;
+      customer_company: string | null;
+      customer_name: string | null;
+    }>();
+  if (inv) {
+    const who = inv.customer_company || inv.customer_name || "a customer";
+    const amount = formatCurrency(Number(data.amount.toFixed(2)));
+    const paidInFull = inv.status === "paid";
+    await notifyOrg(supabase, {
+      tenantId: ctx.orgId,
+      type: paidInFull ? "invoice_paid" : "payment_recorded",
+      title: paidInFull
+        ? `Invoice ${inv.invoice_number} paid in full`
+        : `Payment recorded on ${inv.invoice_number}`,
+      body: paidInFull ? `${who}'s invoice is fully paid.` : `${amount} received from ${who}.`,
+      entityType: "invoice",
+      entityId: data.invoiceId,
+    });
+  }
 
   revalidatePath("/invoices");
   revalidatePath(`/invoices/${data.invoiceId}`);

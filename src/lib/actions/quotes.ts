@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { getActiveOrgId } from "@/lib/auth/session";
+import { notifyOrg } from "@/lib/notifications/notify";
 import { computeLineTotals, computeQuoteTotals } from "@/lib/quotes/totals";
 import { type VariantMatrix, compareSizes } from "@/lib/quotes/types";
 import { type QuoteInput, type QuoteLineItemInput, quoteInputSchema } from "@/lib/schemas/quote";
@@ -230,19 +231,39 @@ export async function deleteQuote(quoteId: string): Promise<MutateResult> {
 
 export async function approveQuote(quoteId: string, approvedByName: string): Promise<MutateResult> {
   const supabase = await createClient();
-  const { error } = await supabase
+  const { data: row, error } = await supabase
     .from("quotes")
     .update({
       status: "approved",
       approved_at: new Date().toISOString(),
       approved_by_name: approvedByName.trim() || null,
     })
-    .eq("id", quoteId);
+    .eq("id", quoteId)
+    .select("tenant_id, quote_number, customer_company, customer_name")
+    .maybeSingle<QuoteNotifyRow>();
   if (error) return { ok: false, error: error.message };
+  if (row) {
+    const who = row.customer_company || row.customer_name || "A customer";
+    await notifyOrg(supabase, {
+      tenantId: row.tenant_id,
+      type: "quote_approved",
+      title: `Quote ${row.quote_number} approved`,
+      body: `${who}'s quote was approved — you can generate an invoice now.`,
+      entityType: "quote",
+      entityId: quoteId,
+    });
+  }
   revalidatePath("/quotes");
   revalidatePath(`/quotes/${quoteId}`);
   return { ok: true };
 }
+
+type QuoteNotifyRow = {
+  tenant_id: string;
+  quote_number: string;
+  customer_company: string | null;
+  customer_name: string | null;
+};
 
 async function setStatus(quoteId: string, status: string): Promise<MutateResult> {
   const supabase = await createClient();
@@ -258,7 +279,28 @@ export async function sendQuote(quoteId: string): Promise<MutateResult> {
 }
 
 export async function declineQuote(quoteId: string): Promise<MutateResult> {
-  return setStatus(quoteId, "declined");
+  const supabase = await createClient();
+  const { data: row, error } = await supabase
+    .from("quotes")
+    .update({ status: "declined" })
+    .eq("id", quoteId)
+    .select("tenant_id, quote_number, customer_company, customer_name")
+    .maybeSingle<QuoteNotifyRow>();
+  if (error) return { ok: false, error: error.message };
+  if (row) {
+    const who = row.customer_company || row.customer_name || "A customer";
+    await notifyOrg(supabase, {
+      tenantId: row.tenant_id,
+      type: "quote_declined",
+      title: `Quote ${row.quote_number} declined`,
+      body: `${who}'s quote was marked declined.`,
+      entityType: "quote",
+      entityId: quoteId,
+    });
+  }
+  revalidatePath("/quotes");
+  revalidatePath(`/quotes/${quoteId}`);
+  return { ok: true };
 }
 
 /**

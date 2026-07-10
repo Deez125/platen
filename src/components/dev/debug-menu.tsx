@@ -4,7 +4,9 @@ import {
   Bug,
   CalendarClock,
   CircleCheck,
+  FastForward,
   Hash,
+  History,
   RotateCcw,
   Trash2,
   TriangleAlert,
@@ -14,6 +16,8 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Shortcut } from "@/components/common/shortcut";
+import { JobActivityDatesDialog } from "@/components/dev/job-activity-dates-dialog";
+import { MigrateQuotesDialog } from "@/components/dev/migrate-quotes-dialog";
 import { usePlatform } from "@/components/providers/platform-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,8 +54,11 @@ export function DebugMenu() {
   const pathname = usePathname();
   const router = useRouter();
   const target = deleteTarget(pathname);
+  const isQuotesList = pathname === "/quotes";
   const [deleting, setDeleting] = useState(false);
   const [open, setOpen] = useState(false);
+  const [migrateOpen, setMigrateOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
   const [dates, setDates] = useState<Record<string, string>>({});
   const [loadingDates, setLoadingDates] = useState(false);
   const [savingDates, setSavingDates] = useState(false);
@@ -131,210 +138,272 @@ export function DebugMenu() {
   }
 
   return (
-    <Tooltip>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Open debug panel">
-              <Bug className="size-4" />
-            </Button>
-          </TooltipTrigger>
-        </PopoverTrigger>
-        <PopoverContent
-          align="end"
-          className="w-72 p-0"
-          onCloseAutoFocus={(e) => e.preventDefault()}
-        >
-          <header className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-2">
-            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-              <Bug className="size-4" />
-              Debug
-            </div>
-          </header>
-
-          <div className="space-y-4 p-3">
-            <section>
-              <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Platform
-                </h3>
-                {isOverridden ? (
-                  <button
-                    type="button"
-                    onClick={resetToDetected}
-                    className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-                  >
-                    <RotateCcw className="size-3" /> Auto-detect
-                  </button>
-                ) : (
-                  <span className="text-[10px] text-muted-foreground">auto-detected</span>
-                )}
+    <>
+      <Tooltip>
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Open debug panel">
+                <Bug className="size-4" />
+              </Button>
+            </TooltipTrigger>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            className="w-72 p-0"
+            onCloseAutoFocus={(e) => e.preventDefault()}
+          >
+            <header className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                <Bug className="size-4" />
+                Debug
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <PlatformButton
-                  active={platform === "mac"}
-                  onClick={() => setPlatform("mac")}
-                  label="Mac"
-                  hint="⌘ ⌥ ⇧ ⌃"
-                />
-                <PlatformButton
-                  active={platform === "windows"}
-                  onClick={() => setPlatform("windows")}
-                  label="Windows"
-                  hint="Ctrl Alt Shift"
-                />
-              </div>
-              <div className="mt-2 flex items-center justify-between rounded-md bg-muted/40 px-2.5 py-1.5">
-                <span className="text-[11px] text-muted-foreground">Preview</span>
-                <Shortcut keys={["mod", "k"]} />
-              </div>
-            </section>
+            </header>
 
-            <Separator />
-
-            <section>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Toast preview
-              </h3>
-              <div className="grid grid-cols-3 gap-2">
-                <ToastPreviewButton
-                  kind="success"
-                  onClick={() =>
-                    toast.success("Operation succeeded", {
-                      description: "Your changes were saved.",
-                    })
-                  }
-                />
-                <ToastPreviewButton
-                  kind="error"
-                  onClick={() =>
-                    toast.error("Operation failed", {
-                      description: "Something went wrong. Please try again.",
-                    })
-                  }
-                />
-                <ToastPreviewButton
-                  kind="loading"
-                  onClick={() =>
-                    toast.loading("Processing…", {
-                      description: "Hang tight, this won't take long.",
-                    })
-                  }
-                />
-              </div>
-            </section>
-
-            <Separator />
-
-            <section>
-              <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <CalendarClock className="size-3.5" /> Dates
-              </h3>
-              {target ? (
-                loadingDates ? (
-                  <div className="flex justify-center py-3">
-                    <Ring size="sm" className="text-muted-foreground" />
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {DATE_FIELDS[target.kind].map((f) => (
-                      <div key={f.column} className="flex items-center justify-between gap-2">
-                        <label
-                          htmlFor={`dbg-date-${f.column}`}
-                          className="text-[11px] text-muted-foreground"
-                        >
-                          {f.label}
-                        </label>
-                        <Input
-                          id={`dbg-date-${f.column}`}
-                          type="date"
-                          value={dates[f.column] ?? ""}
-                          onChange={(e) => setDates((d) => ({ ...d, [f.column]: e.target.value }))}
-                          className="h-7 w-36 text-xs"
-                        />
-                      </div>
-                    ))}
-                    <Button
-                      size="sm"
-                      className="w-full"
-                      onClick={handleSaveDates}
-                      disabled={savingDates}
-                    >
-                      {savingDates ? <Ring size="sm" className="text-current" /> : "Save dates"}
-                    </Button>
-                  </div>
-                )
-              ) : (
-                <p className="text-[11px] text-muted-foreground/60">
-                  Open a quote, invoice, or job to edit its dates.
-                </p>
-              )}
-            </section>
-
-            {target?.kind === "quote" ? (
-              <>
-                <Separator />
-                <section>
-                  <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    <Hash className="size-3.5" /> Quote number
+            <div className="space-y-4 p-3">
+              <section>
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Platform
                   </h3>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={quoteNumberInput}
-                      onChange={(e) => setQuoteNumberInput(e.target.value)}
-                      placeholder="MPBI-12384"
-                      className="h-7 flex-1 text-xs"
-                    />
+                  {isOverridden ? (
+                    <button
+                      type="button"
+                      onClick={resetToDetected}
+                      className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+                    >
+                      <RotateCcw className="size-3" /> Auto-detect
+                    </button>
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground">auto-detected</span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <PlatformButton
+                    active={platform === "mac"}
+                    onClick={() => setPlatform("mac")}
+                    label="Mac"
+                    hint="⌘ ⌥ ⇧ ⌃"
+                  />
+                  <PlatformButton
+                    active={platform === "windows"}
+                    onClick={() => setPlatform("windows")}
+                    label="Windows"
+                    hint="Ctrl Alt Shift"
+                  />
+                </div>
+                <div className="mt-2 flex items-center justify-between rounded-md bg-muted/40 px-2.5 py-1.5">
+                  <span className="text-[11px] text-muted-foreground">Preview</span>
+                  <Shortcut keys={["mod", "k"]} />
+                </div>
+              </section>
+
+              <Separator />
+
+              <section>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Toast preview
+                </h3>
+                <div className="grid grid-cols-3 gap-2">
+                  <ToastPreviewButton
+                    kind="success"
+                    onClick={() =>
+                      toast.success("Operation succeeded", {
+                        description: "Your changes were saved.",
+                      })
+                    }
+                  />
+                  <ToastPreviewButton
+                    kind="error"
+                    onClick={() =>
+                      toast.error("Operation failed", {
+                        description: "Something went wrong. Please try again.",
+                      })
+                    }
+                  />
+                  <ToastPreviewButton
+                    kind="loading"
+                    onClick={() =>
+                      toast.loading("Processing…", {
+                        description: "Hang tight, this won't take long.",
+                      })
+                    }
+                  />
+                </div>
+              </section>
+
+              {isQuotesList ? (
+                <>
+                  <Separator />
+                  <section>
+                    <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <FastForward className="size-3.5" /> Migrate
+                    </h3>
                     <Button
                       size="sm"
-                      onClick={handleSaveNumber}
-                      disabled={savingNumber || quoteNumberInput.trim() === ""}
+                      variant="outline"
+                      className="w-full gap-1.5"
+                      onClick={() => {
+                        setOpen(false);
+                        setMigrateOpen(true);
+                      }}
                     >
-                      {savingNumber ? <Ring size="sm" className="text-current" /> : "Save"}
+                      <FastForward className="size-4" /> Migrate to invoices/jobs
                     </Button>
-                  </div>
-                  <p className="mt-1.5 text-[11px] text-muted-foreground">
-                    Set this quote's number by hand — handy with random numbering.
-                  </p>
-                </section>
-              </>
-            ) : null}
-
-            <Separator />
-
-            <section>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Danger zone
-              </h3>
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={!target || deleting}
-                className={cn(
-                  "flex w-full items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition-colors",
-                  target
-                    ? "cursor-pointer border-destructive text-destructive hover:bg-destructive/10"
-                    : "cursor-not-allowed border-border text-muted-foreground/40",
-                )}
-              >
-                {deleting ? (
-                  <Ring size="sm" className="text-current" />
-                ) : (
-                  <Trash2 className="size-4" />
-                )}
-                {target ? `Delete ${target.kind}` : "Delete (open a quote, invoice, or job)"}
-              </button>
-              {target ? (
-                <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  Permanently wipes this {target.kind} and everything tied to it.
-                </p>
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">
+                      Fast-forward approved quotes to delivered, paid orders.
+                    </p>
+                  </section>
+                </>
               ) : null}
-            </section>
-          </div>
-        </PopoverContent>
-      </Popover>
-      <TooltipContent side="bottom">Debug</TooltipContent>
-    </Tooltip>
+
+              <Separator />
+
+              <section>
+                <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <CalendarClock className="size-3.5" /> Dates
+                </h3>
+                {target ? (
+                  loadingDates ? (
+                    <div className="flex justify-center py-3">
+                      <Ring size="sm" className="text-muted-foreground" />
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {DATE_FIELDS[target.kind].map((f) => (
+                        <div key={f.column} className="flex items-center justify-between gap-2">
+                          <label
+                            htmlFor={`dbg-date-${f.column}`}
+                            className="text-[11px] text-muted-foreground"
+                          >
+                            {f.label}
+                          </label>
+                          <Input
+                            id={`dbg-date-${f.column}`}
+                            type="date"
+                            value={dates[f.column] ?? ""}
+                            onChange={(e) =>
+                              setDates((d) => ({ ...d, [f.column]: e.target.value }))
+                            }
+                            className="h-7 w-36 text-xs"
+                          />
+                        </div>
+                      ))}
+                      <Button
+                        size="sm"
+                        className="w-full"
+                        onClick={handleSaveDates}
+                        disabled={savingDates}
+                      >
+                        {savingDates ? <Ring size="sm" className="text-current" /> : "Save dates"}
+                      </Button>
+                    </div>
+                  )
+                ) : (
+                  <p className="text-[11px] text-muted-foreground/60">
+                    Open a quote, invoice, or job to edit its dates.
+                  </p>
+                )}
+              </section>
+
+              {target?.kind === "job" ? (
+                <>
+                  <Separator />
+                  <section>
+                    <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <History className="size-3.5" /> Activity
+                    </h3>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full gap-1.5"
+                      onClick={() => {
+                        setOpen(false);
+                        setActivityOpen(true);
+                      }}
+                    >
+                      <History className="size-4" /> Edit activity dates
+                    </Button>
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">
+                      Backdate any event in this job's activity log.
+                    </p>
+                  </section>
+                </>
+              ) : null}
+
+              {target?.kind === "quote" ? (
+                <>
+                  <Separator />
+                  <section>
+                    <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <Hash className="size-3.5" /> Quote number
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={quoteNumberInput}
+                        onChange={(e) => setQuoteNumberInput(e.target.value)}
+                        placeholder="MPBI-12384"
+                        className="h-7 flex-1 text-xs"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={handleSaveNumber}
+                        disabled={savingNumber || quoteNumberInput.trim() === ""}
+                      >
+                        {savingNumber ? <Ring size="sm" className="text-current" /> : "Save"}
+                      </Button>
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">
+                      Set this quote's number by hand — handy with random numbering.
+                    </p>
+                  </section>
+                </>
+              ) : null}
+
+              <Separator />
+
+              <section>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Danger zone
+                </h3>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={!target || deleting}
+                  className={cn(
+                    "flex w-full items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition-colors",
+                    target
+                      ? "cursor-pointer border-destructive text-destructive hover:bg-destructive/10"
+                      : "cursor-not-allowed border-border text-muted-foreground/40",
+                  )}
+                >
+                  {deleting ? (
+                    <Ring size="sm" className="text-current" />
+                  ) : (
+                    <Trash2 className="size-4" />
+                  )}
+                  {target ? `Delete ${target.kind}` : "Delete (open a quote, invoice, or job)"}
+                </button>
+                {target ? (
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                    Permanently wipes this {target.kind} and everything tied to it.
+                  </p>
+                ) : null}
+              </section>
+            </div>
+          </PopoverContent>
+        </Popover>
+        <TooltipContent side="bottom">Debug</TooltipContent>
+      </Tooltip>
+      <MigrateQuotesDialog open={migrateOpen} onOpenChange={setMigrateOpen} />
+      {target?.kind === "job" ? (
+        <JobActivityDatesDialog
+          open={activityOpen}
+          onOpenChange={setActivityOpen}
+          jobId={target.id}
+        />
+      ) : null}
+    </>
   );
 }
 

@@ -156,6 +156,7 @@ export default async function InvoiceDetailPage({
         actions={
           <InvoiceHeaderActions
             invoiceId={invoice.id}
+            invoiceNumber={invoice.invoice_number}
             status={invoice.status}
             canManage={canManage}
             existingJobId={job?.id ?? null}

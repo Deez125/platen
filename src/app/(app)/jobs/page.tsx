@@ -21,6 +21,7 @@ import {
 import { getActiveOrgId } from "@/lib/auth/session";
 import { formatDate } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
+import { cn } from "@/lib/utils";
 
 type JobRow = {
   id: string;
@@ -35,8 +36,8 @@ type JobRow = {
 };
 
 type PayStatus = "unpaid" | "partial" | "paid";
-const PAYMENT: Record<PayStatus, { label: string; variant: "neutral" | "warning" | "success" }> = {
-  unpaid: { label: "Unpaid", variant: "neutral" },
+const PAYMENT: Record<PayStatus, { label: string; variant: "warning" | "success" }> = {
+  unpaid: { label: "Unpaid", variant: "warning" },
   partial: { label: "Partial", variant: "warning" },
   paid: { label: "Paid", variant: "success" },
 };
@@ -72,7 +73,7 @@ export default async function JobsPage({
   if (active !== "all") query = query.eq("status", active);
 
   const { data } = await query;
-  const rows = (data ?? []) as unknown as JobRow[];
+  const fetched = (data ?? []) as unknown as JobRow[];
 
   function customerOf(job: JobRow) {
     return job.customers?.company || job.customer_name || "—";
@@ -88,6 +89,17 @@ export default async function JobsPage({
     if (total > 0 && paid >= total) return "paid";
     return "partial";
   }
+  // An order is "completed" only when delivered AND paid in full; a
+  // delivered-but-unpaid job still needs attention, so it isn't dimmed.
+  function isCompleted(job: JobRow) {
+    return job.status === "delivered" && paymentOf(job) === "paid";
+  }
+  // Completed orders sink below active ones; date order within each group is
+  // preserved from the query.
+  const rows = [
+    ...fetched.filter((j) => !isCompleted(j)),
+    ...fetched.filter((j) => isCompleted(j)),
+  ];
 
   return (
     <>
@@ -126,6 +138,7 @@ export default async function JobsPage({
                 due={formatDate(job.due_date)}
                 unitsReady={ready}
                 unitsTotal={total}
+                completed={isCompleted(job)}
               />
             );
           })}
@@ -146,8 +159,9 @@ export default async function JobsPage({
             {rows.map((job) => {
               const { ready, total } = readyOf(job);
               const pay = PAYMENT[paymentOf(job)];
+              const completed = isCompleted(job);
               return (
-                <TableRow key={job.id} className="cursor-pointer">
+                <TableRow key={job.id} className={cn("cursor-pointer", completed && "opacity-60")}>
                   <TableCell className="font-medium">
                     <Link href={`/jobs/${job.id}`} className="block">
                       {job.invoice_number || "—"}

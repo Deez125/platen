@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { getActiveContext } from "@/lib/auth/session";
 import { type JobChecklistItem, type WorkUnitStatus, workUnitStatuses } from "@/lib/db/schema/jobs";
+import { notifyOrg } from "@/lib/notifications/notify";
 import { createClient } from "@/lib/supabase/server";
 
 type Result = { ok: true } | { ok: false; error: string };
@@ -218,10 +219,10 @@ export async function markJobDelivered(jobId: string): Promise<Result> {
   const supabase = await createClient();
   const { data: job } = await supabase
     .from("jobs")
-    .select("status")
+    .select("status, invoice_number, customer_name")
     .eq("id", jobId)
     .eq("tenant_id", ctx.orgId)
-    .maybeSingle<{ status: string }>();
+    .maybeSingle<{ status: string; invoice_number: string | null; customer_name: string | null }>();
   if (!job) return { ok: false, error: "Job not found." };
   if (job.status !== "ready") {
     return { ok: false, error: "All work units must be ready before delivering." };
@@ -240,6 +241,18 @@ export async function markJobDelivered(jobId: string): Promise<Result> {
     actor_id: ctx.userId,
     type: "status_change",
     message: "Job delivered",
+  });
+
+  const jobLabel = job.invoice_number || "Job";
+  await notifyOrg(supabase, {
+    tenantId: ctx.orgId,
+    type: "job_delivered",
+    title: `${jobLabel} delivered`,
+    body: job.customer_name
+      ? `${job.customer_name}'s order is complete and delivered.`
+      : "The order is complete and delivered.",
+    entityType: "job",
+    entityId: jobId,
   });
 
   revalidatePath("/production");

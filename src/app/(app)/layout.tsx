@@ -48,7 +48,9 @@ export default async function AppShellLayout({ children }: { children: ReactNode
     }));
 
   // Cookie-aware active org so the switcher highlights the right one.
-  const activeOrgId = (await getActiveContext())?.orgId ?? null;
+  const activeContext = await getActiveContext();
+  const activeOrgId = activeContext?.orgId ?? null;
+  const isOwner = activeContext?.role === "owner";
 
   const firstName = profile?.first_name ?? "";
   const lastName = profile?.last_name ?? "";
@@ -70,7 +72,7 @@ export default async function AppShellLayout({ children }: { children: ReactNode
         activeOrgId={activeOrgId}
       />
       <SidebarInset>
-        <AppTopbar />
+        <AppTopbar isOwner={isOwner} />
         <div className="flex flex-1 flex-col gap-6 p-6">{children}</div>
       </SidebarInset>
     </SidebarProvider>
